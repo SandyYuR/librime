@@ -9,6 +9,7 @@
 #include <rime/common.h>
 #include <rime/composition.h>
 #include <rime/context.h>
+#include <rime/dict/dictionary.h>
 #include <rime/config/config_types.h>
 #include <rime/engine.h>
 #include <rime/filter.h>
@@ -100,6 +101,22 @@ class ConcreteEngine : public Engine {
   virtual void ApplySchema(Schema* schema);
   virtual void CommitText(string text);
   virtual void Compose(Context* ctx);
+
+  void CollectInputTabs(size_t pos, vector<InputTabEntry>* tabs) const override {
+    for (const auto& entry : translators_) {
+      if (entry.enabled)
+        entry.component->CollectInputTabs(pos, tabs);
+    }
+  }
+  Dictionary* primary_dictionary() const override {
+    for (const auto& entry : translators_) {
+      if (!entry.enabled)
+        continue;
+      if (auto* dict = entry.component->primary_dictionary(); dict && dict->loaded())
+        return dict;
+    }
+    return nullptr;
+  }
 
  protected:
   bool ProcessKey(const KeyEvent& key_event, bool synthetic);

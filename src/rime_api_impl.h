@@ -17,6 +17,10 @@
 #include <rime/setup.h>
 #include <rime/signature.h>
 #include <rime/switches.h>
+#include <rime/engine.h>
+#include <rime/candidate.h>
+#include <rime/dict/dictionary.h>
+#include <rime/gear/translator_commons.h>
 
 using namespace rime;
 
@@ -1174,6 +1178,189 @@ void RimeGetStagingDirSecure(char* dir, size_t buffer_size);
 void RimeGetSyncDirSecure(char* dir, size_t buffer_size);
 const char* RimeGetVersion();
 
+// --- Input tab disambiguation API ---
+
+static Bool RimeGetInputTabs(RimeSessionId session_id,
+                             size_t position,
+                             char*** labels,
+                             size_t** spans,
+                             int** sources,
+                             size_t* count) {
+  an<Session> session(Service::instance().GetSession(session_id));
+  if (!session)
+    return False;
+  Engine* engine = session->engine();
+  if (!engine)
+    return False;
+  Context* ctx = engine->context();
+  if (!ctx || ctx->composition().empty())
+    return False;
+
+  // Use provided position; 0 means "current cursor"
+  size_t start_pos = (position == 0) ? ctx->CurrentTabCursor() : position;
+  // When auto-detecting position (position == 0), skip past confirmed segments
+  if (position == 0) {
+    size_t edit_pos = ctx->composition().GetCurrentStartPosition();
+    if (start_pos < edit_pos) {
+      start_pos = edit_pos;
+    }
+  }
+  if (start_pos >= ctx->input().length()) {
+    if (position == 0) {
+      // Auto-computed position past input: all syllables selected, no tabs
+      *count = 0;
+      return False;
+    }
+    start_pos = ctx->composition().GetCurrentStartPosition();
+  }
+  vector<InputTabEntry> tabs;
+  engine->CollectInputTabs(start_pos, &tabs);
+  // Deduplicate by (label, span, source), preserving the first occurrence.
+  vector<InputTabEntry> unique_tabs;
+  set<string> seen;
+  for (auto& tab : tabs) {
+    const string key = tab.label + "\t" + std::to_string(tab.span) + "\t" +
+                       std::to_string(tab.source);
+    if (seen.insert(key).second) {
+      unique_tabs.push_back(tab);
+    }
+  }
+
+  if (unique_tabs.empty())
+    return False;
+
+  *count = unique_tabs.size();
+  *labels = new char*[*count];
+  *spans = new size_t[*count];
+  *sources = new int[*count];
+  for (size_t i = 0; i < *count; ++i) {
+    const auto& [label, span, source] = unique_tabs[i];
+    (*labels)[i] = new char[label.length() + 1];
+    std::strcpy((*labels)[i], label.c_str());
+    (*spans)[i] = span;
+    (*sources)[i] = source;
+  }
+  return True;
+}
+
+static void RimeFreeInputTabs(char** labels,
+                              size_t* spans,
+                              int* sources,
+                              size_t count) {
+  if (labels) {
+    for (size_t i = 0; i < count; ++i)
+      delete[] labels[i];
+    delete[] labels;
+  }
+  delete[] spans;
+  delete[] sources;
+}
+
+static Bool RimeGetCandidateCode(RimeSessionId session_id,
+                                 size_t index,
+                                 char*** segments,
+                                 size_t* num_segments,
+                                 size_t* matching_segments) {
+  an<Session> session(Service::instance().GetSession(session_id));
+  if (!session)
+    return False;
+  Engine* engine = session->engine();
+  if (!engine)
+    return False;
+  Context* ctx = engine->context();
+  if (!ctx || ctx->composition().empty())
+    return False;
+
+  auto& seg = ctx->composition().back();
+  if (!seg.menu)
+    return False;
+
+  auto cand = seg.menu->GetCandidateAt(index);
+  if (!cand)
+    return False;
+
+  vector<string> decoded;
+  size_t resolved_matching_segments = 0;
+  bool found = false;
+  for (const auto& genuine : Candidate::GetGenuineCandidates(cand)) {
+    auto phrase = As<Phrase>(genuine);
+    if (!phrase)
+      continue;
+    Dictionary* dict = phrase->dictionary();
+    if (!dict || !dict->loaded())
+      continue;
+    decoded.clear();
+    if (!dict->Decode(phrase->code(), &decoded) || decoded.empty())
+      continue;
+    resolved_matching_segments = phrase->matching_code_size();
+    found = true;
+    break;
+  }
+  if (!found)
+    return False;
+
+  *num_segments = decoded.size();
+  *matching_segments = resolved_matching_segments;
+  if (*matching_segments == 0)
+    *matching_segments = *num_segments;
+
+  *segments = new char*[*num_segments];
+  for (size_t i = 0; i < *num_segments; ++i) {
+    (*segments)[i] = new char[decoded[i].length() + 1];
+    std::strcpy((*segments)[i], decoded[i].c_str());
+  }
+  return True;
+}
+
+static void RimeFreeCandidateCode(char** segments, size_t num_segments) {
+  if (segments) {
+    for (size_t i = 0; i < num_segments; ++i)
+      delete[] segments[i];
+    delete[] segments;
+  }
+}
+
+static Bool RimeSelectTab(RimeSessionId session_id,
+                          size_t position,
+                          const char* label,
+                          size_t span) {
+  an<Session> session(Service::instance().GetSession(session_id));
+  if (!session || !label)
+    return False;
+  Context* ctx = session->context();
+  if (!ctx)
+    return False;
+
+  // position=0 means auto-compute from current editing segment.
+  if (position == 0) {
+    position = ctx->CurrentTabCursor();
+    size_t edit_pos = ctx->composition().GetCurrentStartPosition();
+    if (position < edit_pos) {
+      position = edit_pos;
+    }
+  }
+
+  if (position >= ctx->input().length()) {
+    return False;
+  }
+
+  ctx->PushTabCursor(position + span);
+  ctx->AddTabConstraint(position, string(label), span);
+  return True;
+}
+
+static Bool RimeClearTabs(RimeSessionId session_id) {
+  an<Session> session(Service::instance().GetSession(session_id));
+  if (!session)
+    return False;
+  Context* ctx = session->context();
+  if (!ctx)
+    return False;
+  ctx->ClearTabCursors();
+  ctx->ClearTabConstraints();
+  return True;
+}
+
 RIME_API RIME_FLAVORED(RimeApi) * RIME_FLAVORED(rime_get_api)() {
   static RIME_FLAVORED(RimeApi) s_api = {0};
   if (!s_api.data_size) {
@@ -1279,6 +1466,13 @@ RIME_API RIME_FLAVORED(RimeApi) * RIME_FLAVORED(rime_get_api)() {
     s_api.change_page = &RimeChangePage;
     s_api.get_candidate_preview = &RimeGetCandidatePreview;
     s_api.free_candidate_preview = &RimeFreeCandidatePreview;
+    // Input tab disambiguation API
+    s_api.get_input_tabs = &RimeGetInputTabs;
+    s_api.free_input_tabs = &RimeFreeInputTabs;
+    s_api.get_candidate_code = &RimeGetCandidateCode;
+    s_api.free_candidate_code = &RimeFreeCandidateCode;
+    s_api.select_tab = &RimeSelectTab;
+    s_api.clear_tabs = &RimeClearTabs;
   }
   return &s_api;
 }
