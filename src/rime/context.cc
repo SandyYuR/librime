@@ -175,7 +175,16 @@ bool Context::DeleteCandidate(size_t index) {
   Segment& seg(composition_.back());
   seg.selected_index = index;
   DLOG(INFO) << "Deleting candidate: " << seg.GetSelectedCandidate()->text();
+  composition_refresh_pending_ = false;
   delete_notifier_(this);
+  // Rebuild the composition only after every listener has observed the same
+  // (pre-refresh) state. Refreshing inside a listener re-translated the
+  // composition mid-dispatch, so the remaining listeners read a *different*
+  // candidate and deleted a second, unrelated word.
+  if (composition_refresh_pending_) {
+    composition_refresh_pending_ = false;
+    RefreshNonConfirmedComposition();
+  }
   return true;  // CAVEAT: this doesn't mean anything is deleted for sure
 }
 
@@ -276,6 +285,10 @@ bool Context::ClearNonConfirmedComposition() {
     DLOG(INFO) << "composition: " << composition_.GetDebugText();
   }
   return reverted;
+}
+
+void Context::requestCompositionRefresh() {
+  composition_refresh_pending_ = true;
 }
 
 bool Context::RefreshNonConfirmedComposition() {
