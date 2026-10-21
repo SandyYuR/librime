@@ -144,7 +144,13 @@ void Memory::OnDeleteEntry(Context* ctx) {
     const DictEntry& entry(phrase->entry());
     LOG(INFO) << "deleting entry: '" << entry.text << "'.";
     user_dict_->UpdateEntry(entry, -1);  // mark as deleted in user dict
-    ctx->RefreshNonConfirmedComposition();
+    // Do not rebuild the composition here: delete_notifier_ is a multicast
+    // signal and several translators (each owning a user dictionary) listen to
+    // it. Refreshing mid-dispatch re-translated the composition, so the
+    // remaining listeners read a different candidate and deleted a second,
+    // unrelated word ("forget one word, lose two"). Ask for one rebuild after
+    // the whole dispatch instead.
+    ctx->requestCompositionRefresh();
   }
 }
 
