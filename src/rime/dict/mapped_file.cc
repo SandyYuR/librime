@@ -139,21 +139,26 @@ bool MappedFile::Resize(size_t capacity) {
 
 String* MappedFile::CreateString(const string& str) {
   String* ret = Allocate<String>();
-  if (ret && !str.empty()) {
-    CopyString(str, ret);
-  }
-  return ret;
+  if (!ret)
+    return NULL;
+  // Allocate() 可能扩容并重新映射，须记下偏移以便随后重新定位
+  const ptrdiff_t ret_offset = OffsetOf(ret);
+  if (!str.empty() && !CopyString(str, ret))
+    return NULL;
+  return Rebase<String>(ret_offset);
 }
 
 bool MappedFile::CopyString(const string& src, String* dest) {
   if (!dest)
     return false;
+  // dest 位于映射区内，而 Allocate() 可能扩容并重新映射使其失效
+  const ptrdiff_t dest_offset = OffsetOf(dest);
   size_t size = src.length() + 1;
   char* ptr = Allocate<char>(size);
   if (!ptr)
     return false;
   std::strncpy(ptr, src.c_str(), size);
-  dest->data = ptr;
+  Rebase<String>(dest_offset)->data = ptr;
   return true;
 }
 
