@@ -11,6 +11,7 @@
 #include <rime/segmentation.h>
 #include <rime/segmentor.h>
 #include <rime/translation.h>
+#include <rime/translator.h>
 
 using namespace rime;
 
@@ -58,6 +59,24 @@ class CountingFilter : public Filter {
 
 int CountingFilter::calls = 0;
 
+class CountingTabTranslator : public Translator {
+ public:
+  explicit CountingTabTranslator(const Ticket& ticket) : Translator(ticket) {}
+  an<Translation> Query(const string&, const Segment&) override { return nullptr; }
+  void CollectInputTabs(size_t, vector<InputTabEntry>* tabs) const override {
+    ++tab_calls;
+    tabs->push_back(InputTabEntry{});
+  }
+  Dictionary* primary_dictionary() const override {
+    ++dictionary_calls;
+    return nullptr;
+  }
+  static int tab_calls;
+  static int dictionary_calls;
+};
+int CountingTabTranslator::tab_calls = 0;
+int CountingTabTranslator::dictionary_calls = 0;
+
 void SetComponentList(Config* config,
                       const string& path,
                       const string& name,
@@ -102,6 +121,9 @@ class ConditionalComponentTest : public ::testing::Test {
                                   new Component<CountingSegmentor>);
     Registry::instance().Register("test_counting_filter",
                                   new Component<CountingFilter>);
+    Registry::instance().Register("test_counting_tabs", new Component<CountingTabTranslator>);
+    CountingTabTranslator::tab_calls = 0;
+    CountingTabTranslator::dictionary_calls = 0;
     CountingProcessor::calls = 0;
     CountingSegmentor::calls = 0;
     CountingFilter::calls = 0;
@@ -110,6 +132,7 @@ class ConditionalComponentTest : public ::testing::Test {
 
   void TearDown() override {
     engine_.reset();
+    Registry::instance().Unregister("test_counting_tabs");
     Registry::instance().Unregister("test_counting_processor");
     Registry::instance().Unregister("test_counting_segmentor");
     Registry::instance().Unregister("test_counting_filter");
@@ -352,4 +375,31 @@ TEST_F(ConditionalComponentTest, UnknownConditionKeyDoesNotEnableComponent) {
   engine_->context()->set_option("option_0", true);
   EXPECT_FALSE(engine_->ProcessKey(KeyEvent(XK_a, 0)));
   EXPECT_EQ(CountingProcessor::calls, 0);
+}
+
+TEST_F(ConditionalComponentTest, DownstreamTabsAndDictionaryRespectConditions) {
+  SetComponentList(engine_->schema()->config(), "engine/translators",
+                   "test_counting_tabs", "tabs_enabled");
+  engine_->ApplySchema(engine_->schema());
+  vector<InputTabEntry> tabs;
+  engine_->CollectInputTabs(0, &tabs);
+  EXPECT_TRUE(tabs.empty());
+  EXPECT_EQ(CountingTabTranslator::tab_calls, 0);
+  EXPECT_EQ(engine_->primary_dictionary(), nullptr);
+  EXPECT_EQ(CountingTabTranslator::dictionary_calls, 0);
+
+  engine_->context()->set_option("tabs_enabled", true);
+  engine_->CollectInputTabs(0, &tabs);
+  EXPECT_EQ(tabs.size(), 1u);
+  EXPECT_EQ(CountingTabTranslator::tab_calls, 1);
+  EXPECT_EQ(engine_->primary_dictionary(), nullptr);
+  EXPECT_EQ(CountingTabTranslator::dictionary_calls, 1);
+
+  engine_->context()->set_option("tabs_enabled", false);
+  tabs.clear();
+  engine_->CollectInputTabs(0, &tabs);
+  EXPECT_TRUE(tabs.empty());
+  EXPECT_EQ(CountingTabTranslator::tab_calls, 1);
+  EXPECT_EQ(engine_->primary_dictionary(), nullptr);
+  EXPECT_EQ(CountingTabTranslator::dictionary_calls, 1);
 }
