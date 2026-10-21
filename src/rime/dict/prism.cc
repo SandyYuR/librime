@@ -209,6 +209,8 @@ bool Prism::Build(const Syllabary& syllabary,
     return false;
   }
   std::memcpy(array, trie_->array(), image_size);
+  // 上一次分配可能扩容并重新映射，重新取得 metadata 指针
+  metadata = Find<prism::Metadata>(0);
   metadata->double_array = array;
   metadata->double_array_size = array_size;
   // building spelling map
@@ -223,19 +225,26 @@ bool Prism::Build(const Syllabary& syllabary,
       LOG(ERROR) << "Error creating spelling map.";
       return false;
     }
-    auto i = script->begin();
-    auto item = spelling_map->begin();
-    for (; i != script->end(); ++i, ++item) {
+    // 循环内还会继续分配，映射基址可能改变，因此只保留偏移
+    const ptrdiff_t spelling_map_offset = OffsetOf(spelling_map);
+    size_t item_pos = 0;
+    for (auto i = script->begin(); i != script->end(); ++i, ++item_pos) {
       size_t list_size = i->second.size();
-      item->size = list_size;
-      item->at = Allocate<prism::SpellingDescriptor>(list_size);
-      if (!item->at) {
+      auto descriptors = Allocate<prism::SpellingDescriptor>(list_size);
+      if (!descriptors) {
         LOG(ERROR) << "Error creating spelling descriptors.";
         return false;
       }
-      auto j = i->second.begin();
-      auto desc = item->begin();
-      for (; j != i->second.end(); ++j, ++desc) {
+      auto fresh_map = Rebase<prism::SpellingMap>(spelling_map_offset);
+      fresh_map->at[item_pos].size = list_size;
+      fresh_map->at[item_pos].at = descriptors;
+      size_t desc_pos = 0;
+      for (auto j = i->second.begin(); j != i->second.end(); ++j, ++desc_pos) {
+        // CopyString() 也会分配，可能扩容并重新映射，故每轮重新取得指针
+        auto desc =
+            &Rebase<prism::SpellingMap>(spelling_map_offset)
+                 ->at[item_pos]
+                 .at[desc_pos];
         desc->syllable_id = syllable_to_id[j->str];
         // 打包寫入 type + is_correction
         int32_t packed_type = static_cast<int32_t>(j->properties.type);
@@ -251,10 +260,14 @@ bool Prism::Build(const Syllabary& syllabary,
         }
       }
     }
-    metadata->spelling_map = spelling_map;
-    spelling_map_ = spelling_map;
+    // 上述分配可能已扩容并重新映射
+    auto fresh_map = Rebase<prism::SpellingMap>(spelling_map_offset);
+    metadata = Find<prism::Metadata>(0);
+    metadata->spelling_map = fresh_map;
+    spelling_map_ = fresh_map;
   }
   // at last, complete the metadata
+  metadata = Find<prism::Metadata>(0);
   std::strncpy(metadata->format, kPrismFormat,
                prism::Metadata::kFormatMaxLength);
   return true;

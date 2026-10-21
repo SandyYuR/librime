@@ -251,6 +251,8 @@ bool Table::OnBuildFinish() {
     return false;
   }
   string_table_builder_->Dump(image, image_size);
+  // 字符串表通常是最大的一块，这里的 Allocate() 极易触发扩容并重新映射
+  metadata_ = Find<table::Metadata>(0);
   metadata_->string_table = image;
   metadata_->string_table_size = image_size;
   return true;
@@ -369,6 +371,8 @@ bool Table::Build(const Syllabary& syllabary,
       AddString(syllable, &syllabary_->at[i++], 0.0);
     }
   }
+  // 创建 syllabary 时可能已扩容并重新映射，重新取得 metadata 指针
+  metadata_ = Find<table::Metadata>(0);
   metadata_->syllabary = syllabary_;
 
   LOG(INFO) << "creating table index.";
@@ -377,6 +381,8 @@ bool Table::Build(const Syllabary& syllabary,
     LOG(ERROR) << "Error creating table index.";
     return false;
   }
+  // BuildIndex() 内部可能扩容并重新映射，重新取得 metadata 指针
+  metadata_ = Find<table::Metadata>(0);
   metadata_->index = index_;
 
   if (!OnBuildFinish()) {
@@ -384,6 +390,9 @@ bool Table::Build(const Syllabary& syllabary,
   }
 
   // at last, complete the metadata
+  // OnBuildFinish() 可能扩容并重新映射；format 是文件头校验字段，
+  // 必须写入当前映射，否则文件将无法再次载入（invalid metadata）
+  metadata_ = Find<table::Metadata>(0);
   std::strncpy(metadata_->format, kTableFormatLatest,
                table::Metadata::kFormatMaxLength);
   return true;
@@ -401,12 +410,16 @@ table::HeadIndex* Table::BuildHeadIndex(const Vocabulary& vocabulary,
   if (!index) {
     return NULL;
   }
+  // 后续分配可能扩容并重新映射，届时 index 失效，因此只保留偏移
+  const ptrdiff_t index_offset = OffsetOf(index);
   for (const auto& v : vocabulary) {
     int syllable_id = v.first;
-    auto& node(index->at[syllable_id]);
     const auto& entries(v.second.entries);
-    if (!BuildEntryList(entries, &node.entries)) {
-      return NULL;
+    {
+      auto head_index = Rebase<table::HeadIndex>(index_offset);
+      if (!BuildEntryList(entries, &head_index->at[syllable_id].entries)) {
+        return NULL;
+      }
     }
     if (v.second.next_level) {
       Code code;
@@ -415,10 +428,13 @@ table::HeadIndex* Table::BuildHeadIndex(const Vocabulary& vocabulary,
       if (!next_level_index) {
         return NULL;
       }
-      node.next_level = reinterpret_cast<table::PhraseIndex*>(next_level_index);
+      // 上一次分配可能已使数组移动
+      auto head_index = Rebase<table::HeadIndex>(index_offset);
+      head_index->at[syllable_id].next_level =
+          reinterpret_cast<table::PhraseIndex*>(next_level_index);
     }
   }
-  return index;
+  return Rebase<table::HeadIndex>(index_offset);
 }
 
 table::TrunkIndex* Table::BuildTrunkIndex(const Code& prefix,
@@ -427,35 +443,44 @@ table::TrunkIndex* Table::BuildTrunkIndex(const Code& prefix,
   if (!index) {
     return NULL;
   }
+  // 后续分配可能扩容并重新映射，届时 index 失效，因此只保留偏移
+  const ptrdiff_t index_offset = OffsetOf(index);
   size_t count = 0;
   for (const auto& v : vocabulary) {
     int syllable_id = v.first;
-    auto& node(index->at[count++]);
-    node.key = syllable_id;
-    const auto& entries(v.second.entries);
-    if (!BuildEntryList(entries, &node.entries)) {
-      return NULL;
+    const size_t node_pos = count++;
+    {
+      auto trunk_index = Rebase<table::TrunkIndex>(index_offset);
+      if (!BuildEntryList(v.second.entries,
+                          &trunk_index->at[node_pos].entries)) {
+        return NULL;
+      }
+      // BuildEntryList() 内部可能扩容并重新映射
+      Rebase<table::TrunkIndex>(index_offset)->at[node_pos].key = syllable_id;
     }
     if (v.second.next_level) {
       Code code(prefix);
       code.push_back(syllable_id);
+      table::PhraseIndex* next_level = NULL;
       if (code.size() < Code::kIndexCodeMaxLength) {
         auto next_level_index = BuildTrunkIndex(code, *v.second.next_level);
         if (!next_level_index) {
           return NULL;
         }
-        node.next_level =
-            reinterpret_cast<table::PhraseIndex*>(next_level_index);
+        next_level = reinterpret_cast<table::PhraseIndex*>(next_level_index);
       } else {
         auto tail_index = BuildTailIndex(code, *v.second.next_level);
         if (!tail_index) {
           return NULL;
         }
-        node.next_level = reinterpret_cast<table::PhraseIndex*>(tail_index);
+        next_level = reinterpret_cast<table::PhraseIndex*>(tail_index);
       }
+      // 上一次分配可能已使数组移动
+      Rebase<table::TrunkIndex>(index_offset)->at[node_pos].next_level =
+          next_level;
     }
   }
-  return index;
+  return Rebase<table::TrunkIndex>(index_offset);
 }
 
 table::TailIndex* Table::BuildTailIndex(const Code& prefix,
@@ -469,24 +494,30 @@ table::TailIndex* Table::BuildTailIndex(const Code& prefix,
   if (!index) {
     return NULL;
   }
+  // 后续分配可能扩容并重新映射，届时 index 失效，因此只保留偏移
+  const ptrdiff_t index_offset = OffsetOf(index);
   size_t count = 0;
   for (const auto& src : page.entries) {
     DLOG(INFO) << "count: " << count;
     DLOG(INFO) << "entry: " << src->text;
-    auto& dest(index->at[count++]);
     size_t extra_code_length = src->code.size() - Code::kIndexCodeMaxLength;
     DLOG(INFO) << "extra code length: " << extra_code_length;
-    dest.extra_code.size = extra_code_length;
-    dest.extra_code.at = Allocate<SyllableId>(extra_code_length);
-    if (!dest.extra_code.at) {
+    const size_t entry_pos = count++;
+    // 每个条目都要分配额外编码，这一步可能移动整个数组
+    auto extra_code = Allocate<SyllableId>(extra_code_length);
+    if (!extra_code) {
       LOG(ERROR) << "Error creating code sequence; file size: " << file_size();
       return NULL;
     }
+    auto tail_index = Rebase<table::TailIndex>(index_offset);
+    auto& dest(tail_index->at[entry_pos]);
+    dest.extra_code.size = extra_code_length;
+    dest.extra_code.at = extra_code;
     std::copy(src->code.begin() + Code::kIndexCodeMaxLength, src->code.end(),
               dest.extra_code.begin());
     BuildEntry(*src, &dest.entry);
   }
-  return index;
+  return Rebase<table::TailIndex>(index_offset);
 }
 
 Array<table::Entry>* Table::BuildEntryArray(const ShortDictEntryList& entries) {
@@ -506,12 +537,16 @@ bool Table::BuildEntryList(const ShortDictEntryList& src,
                            List<table::Entry>* dest) {
   if (!dest)
     return false;
-  dest->size = src.size();
-  dest->at = Allocate<table::Entry>(src.size());
-  if (!dest->at) {
+  // dest 位于映射区内，而下面的分配可能扩容并重新映射使其失效
+  const ptrdiff_t dest_offset = OffsetOf(dest);
+  auto entries = Allocate<table::Entry>(src.size());
+  if (!entries) {
     LOG(ERROR) << "Error creating table entries; file size: " << file_size();
     return false;
   }
+  dest = Rebase<List<table::Entry>>(dest_offset);
+  dest->size = src.size();
+  dest->at = entries;
   size_t i = 0;
   for (auto d = src.begin(); d != src.end(); ++d, ++i) {
     if (!BuildEntry(**d, &dest->at[i]))
