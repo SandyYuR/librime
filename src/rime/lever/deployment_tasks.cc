@@ -20,8 +20,10 @@
 #include <rime/setup.h>
 #include <rime/algo/fs.h>
 #include <rime/algo/utilities.h>
+#include <rime/gear/rewriter.h>
 #include <rime/lever/compile_unit.h>
 #include <rime/lever/deployment_tasks.h>
+#include <rime/lever/rewrite_compiler.h>
 #include <rime/lever/user_dict_manager.h>
 
 namespace fs = std::filesystem;
@@ -191,6 +193,15 @@ bool WorkspaceUpdate::Run(Deployer* deployer) {
     return false;
   }
 
+  const bool rewrite_workspace_started =
+      RewriteCompiler::BeginWorkspace(deployer);
+  auto abort_rewrite_workspace = [&] {
+    if (rewrite_workspace_started &&
+        !RewriteCompiler::AbortWorkspace(deployer)) {
+      LOG(WARNING) << "failed to roll back shared rewrite store.";
+    }
+  };
+
   LOG(INFO) << "updating schemas.";
   int success = 0;
   int failure = 0;
@@ -202,11 +213,13 @@ bool WorkspaceUpdate::Run(Deployer* deployer) {
   // Phase 1 (serial): update schema config files and collect compile units.
   // All accesses to the shared, non-thread-safe component caches happen in
   // this phase.
+  vector<string> active_schema_ids;
   CompileGraph graph;
   map<string, path> schemas;
   auto process_schema = [&](const string& schema_id, bool as_dependency) {
     if (schemas.find(schema_id) != schemas.end())  // already processed
       return;
+    active_schema_ids.push_back(schema_id);
     LOG(INFO) << "schema: " << schema_id;
     path schema_path = resolver->ResolvePath(schema_id);
     schemas[schema_id] = schema_path;
@@ -230,6 +243,13 @@ bool WorkspaceUpdate::Run(Deployer* deployer) {
     if (!schema_config) {
       ++failure;
       return;
+    }
+    // Rewriter compilation and shared-store bookkeeping stay in the serial
+    // preparation phase, including schemas that have no dictionary.
+    RewriteCompiler rewrite_compiler(schema_id, schema_config.get(), deployer);
+    if (!rewrite_compiler.Compile()) {
+      LOG(WARNING) << "rewrite data for schema '" << schema_id
+                   << "' was not updated.";
     }
     CompileUnit unit;
     switch (CreateDictionaryCompileUnit(schema_id, std::move(schema_config),
@@ -281,16 +301,28 @@ bool WorkspaceUpdate::Run(Deployer* deployer) {
   // Phase 2: execute the constructed graph of compile units; independent
   // units may be compiled in parallel.
   if (!MaybeCreateDirectory(deployer->staging_dir)) {
+    abort_rewrite_workspace();
     return false;
   }
   CompileScheduler scheduler;
   auto compile_result = scheduler.Run(graph);
   if (!compile_result) {
     LOG(ERROR) << "error in compile graph.";
+    abort_rewrite_workspace();
     return false;
   }
   success += compile_result->success;
   failure += compile_result->failure;
+  if (rewrite_workspace_started) {
+    Rewriter::ReleaseStagesForDeployment();
+    if (!RewriteCompiler::FinalizeWorkspace(active_schema_ids, deployer)) {
+      LOG(WARNING) << "failed to finalize shared rewrite store.";
+      if (!RewriteCompiler::AbortWorkspace(deployer)) {
+        LOG(WARNING) << "failed to roll back shared rewrite store.";
+      }
+    }
+  }
+
   LOG(INFO) << "finished updating schemas: " << success << " success, "
             << failure << " failure.";
 
@@ -401,10 +433,20 @@ bool SchemaUpdate::Run(Deployer* deployer) {
   if (!MaybeCreateDirectory(deployer->staging_dir)) {
     return false;
   }
+  auto compile_rewriter = [&]() {
+    the<Config> rewrite_config(Config::Require("schema")->Create(schema_id));
+    RewriteCompiler rewrite_compiler(schema_id, rewrite_config.get(), deployer);
+    if (!rewrite_compiler.Compile()) {
+      LOG(WARNING) << "rewrite data for schema '" << schema_id
+                   << "' was not updated.";
+    }
+  };
+
   CompileUnit unit;
   switch (CreateDictionaryCompileUnit(schema_id, std::move(config), verbose_,
                                       &unit)) {
     case CompileUnitResult::kTrivial:
+      compile_rewriter();
       return true;
     case CompileUnitResult::kError:
       return false;
@@ -423,7 +465,11 @@ bool SchemaUpdate::Run(Deployer* deployer) {
     LOG(ERROR) << "error in compile graph.";
     return false;
   }
-  return result->failure == 0;
+  if (result->failure != 0) {
+    return false;
+  }
+  compile_rewriter();
+  return true;
 }
 
 ConfigFileUpdate::ConfigFileUpdate(TaskInitializer arg) {
