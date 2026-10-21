@@ -521,6 +521,50 @@ typedef struct RIME_FLAVORED(rime_api_t) {
                                 RimeCandidatePreview* preview);
   //! free a RimeCandidatePreview filled by get_candidate_preview
   Bool (*free_candidate_preview)(RimeCandidatePreview* preview);
+
+  // --- Input tab disambiguation API ---
+
+  //! Get possible input tab entries for disambiguation at the current
+  //! composition position. Merges data from all translators:
+  //!   ScriptTranslator: SyllableGraph edges (pinyin syllables)
+  //!   TableTranslator: valid code prefixes from table syllabary
+  //!   ReverseLookupTranslator: pinyin readings from reverse lookup
+  //! Returns True if tabs were found.
+  //! Caller must free with free_input_tabs().
+  Bool (*get_input_tabs)(RimeSessionId session_id,
+                         size_t position,
+                         char*** labels,
+                         size_t** spans,
+                         int** sources,
+                         size_t* count);
+  void (*free_input_tabs)(char** labels,
+                          size_t* spans,
+                          int* sources,
+                          size_t count);
+
+  //! Get the decoded code segments for a candidate at the given index.
+  //! E.g. pinyin "你好" → segments=["ni","hao"], matching_segments=2
+  //! For wrapped/uniquified candidates, returns the first decodable
+  //! genuine candidate.
+  //! matching_segments corresponds to the returned genuine candidate.
+  //! Returns True if code info was found.
+  //! Caller must free with free_candidate_code().
+  Bool (*get_candidate_code)(RimeSessionId session_id,
+                             size_t index,
+                             char*** segments,
+                             size_t* num_segments,
+                             size_t* matching_segments);
+  void (*free_candidate_code)(char** segments, size_t num_segments);
+
+  //! Select a tab to constrain syllable disambiguation.
+  //! Adds a constraint to Context and triggers re-composition.
+  Bool (*select_tab)(RimeSessionId session_id,
+                     size_t position,
+                     const char* label,
+                     size_t span);
+
+  //! Clear all tab constraints and restore unconstrained candidates.
+  Bool (*clear_tabs)(RimeSessionId session_id);
 } RIME_FLAVORED(RimeApi);
 
 //! API entry
