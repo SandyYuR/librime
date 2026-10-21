@@ -240,6 +240,8 @@ bool ReverseDb::Build(DictSettings* settings,
     }
   }
 
+  // 以下每次分配都可能扩容并重新映射，因此写入前重新取得 metadata 指针
+  metadata_ = Find<reverse::Metadata>(0);
   auto index = Allocate<StringId>(entry_count);
   if (!index) {
     return false;
@@ -247,6 +249,7 @@ bool ReverseDb::Build(DictSettings* settings,
   for (size_t k = 0; k < entry_count; ++k) {
     index[key_ids[k]] = value_ids[k];
   }
+  metadata_ = Find<reverse::Metadata>(0);
   metadata_->index.size = entry_count;
   metadata_->index.at = index;
 
@@ -257,6 +260,8 @@ bool ReverseDb::Build(DictSettings* settings,
     return false;
   }
   std::memcpy(key_trie_ptr, key_trie_image.data(), key_trie_image_size);
+  // Allocate() 可能扩容并重新映射，写入前重新取得 metadata 指针
+  metadata_ = Find<reverse::Metadata>(0);
   metadata_->key_trie = key_trie_ptr;
   metadata_->key_trie_size = key_trie_image_size;
 
@@ -267,10 +272,13 @@ bool ReverseDb::Build(DictSettings* settings,
     return false;
   }
   std::memcpy(value_trie_ptr, value_trie_image.data(), value_trie_image_size);
+  // Allocate() 可能扩容并重新映射，写入前重新取得 metadata 指针
+  metadata_ = Find<reverse::Metadata>(0);
   metadata_->value_trie = value_trie_ptr;
   metadata_->value_trie_size = value_trie_image_size;
 
   // at last, complete the metadata
+  metadata_ = Find<reverse::Metadata>(0);
   std::strncpy(metadata_->format, kReverseFormat,
                reverse::Metadata::kFormatMaxLength);
   return true;
