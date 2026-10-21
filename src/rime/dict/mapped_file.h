@@ -9,6 +9,7 @@
 
 #include <stdint.h>
 #include <algorithm>
+#include <cstddef>
 #include <cstring>
 #include <rime_api.h>
 #include <rime/common.h>
@@ -104,6 +105,19 @@ class RIME_DLL MappedFile {
 
   size_t capacity() const;
   char* address() const;
+
+  // 空间不足时 Allocate() 会扩容文件并重新映射，映射基址随之改变，此前由
+  // Allocate()/CreateArray() 取得的裸指针全部失效，且不会被自动修正（文件内
+  // 的 OffsetPtr 因保存的是相对偏移而不受影响）。
+  // 因此构造文件时如需跨分配持有指针，应先用 OffsetOf() 记下偏移，待分配
+  // 结束后再用 Rebase() 取得当前有效的指针。ptr 必须位于映射区内。
+  ptrdiff_t OffsetOf(const void* ptr) const {
+    return static_cast<const char*>(ptr) - address();
+  }
+  template <class T>
+  T* Rebase(ptrdiff_t offset) const {
+    return reinterpret_cast<T*>(address() + offset);
+  }
 
  public:
   // noncpyable
