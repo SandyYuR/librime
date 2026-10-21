@@ -9,6 +9,8 @@
 
 #include <algorithm>
 #include <boost/algorithm/string.hpp>
+#include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <future>
 #include <thread>
@@ -43,6 +45,132 @@ namespace fs = std::filesystem;
 
 namespace rime {
 
+namespace {
+
+// Whether a file directly inside a data directory takes part in the "did the
+// configuration change" decision: the same scope the old timestamp check
+// covered (directly inside either data directory, .yaml), minus user.yaml.
+// Deliberately not widened to other extensions - this patch only removes false
+// positives, it does not add new triggers.
+//
+// user.yaml is excluded because rime rewrites it on its own at runtime: option
+// toggles, schema switches and the autosave on exit all touch it, and none of
+// that means the user edited a configuration. It is also where this patch
+// records the fingerprint, so including it would make the record invalidate
+// itself.
+//
+// installation.yaml is deliberately NOT excluded: it is only rewritten when
+// the distribution or Rime version changes, and that is exactly the signal
+// that makes an upgrade redeploy the workspace. Comparing a content
+// fingerprint (rather than a timestamp) makes it safe to keep, since the value
+// is recorded at the end of a deployment and therefore stays stable until the
+// next real change.
+bool IsScannedConfig(const string& filename) {
+  return filename != "user.yaml" && boost::ends_with(filename, ".yaml");
+}
+
+// A fingerprint of every config file that a deployment would pick up.
+//
+// This replaces comparing the newest mtime against the recorded build time.
+// That comparison could not tell a real config edit apart from unrelated churn
+// in the very same directory: a userdb being written, CleanupTrash moving
+// files into trash/, the .temp.userdb scratch directory sync creates and
+// removes, or installation.yaml being rewritten. Worse, tasks that run after
+// the build time is recorded still bump the directory mtime, so the next start
+// saw "modifications detected" again - on a cold start that produced a full
+// deployment on essentially every launch, and every keystroke typed while it
+// ran was dropped or leaked to the editor.
+//
+// A fingerprint over the files themselves is immune to all of that: creating,
+// changing, removing or adding a config file shows up, unrelated directory
+// activity does not.
+//
+// Returns a short single-line scalar for user.yaml: an "fp1-" prefix plus an
+// FNV-1a 64-bit digest over "<dir>/<name>:<size>:<mtime>" lines.
+string ConfigFingerprint(const vector<path>& data_dirs) {
+  // Canonicalize and sort the directories first, then tag each file with its
+  // directory's position in that sorted order. This keeps the digest
+  // independent of the order the caller passes the directories in, while still
+  // distinguishing a file in one data directory from the same-named file in
+  // the other. The directory's own path is deliberately not part of the
+  // digest, so no private device path ends up in the user's config.
+  vector<string> dirs;
+  for (const auto& dir : data_dirs) {
+    std::error_code ec;
+    path p = fs::canonical(dir, ec);
+    if (ec || !fs::is_directory(p, ec) || ec) {
+      // The caller logs and treats this as "deploy"; skipping here would
+      // silently weaken the check.
+      throw fs::filesystem_error("ConfigFingerprint: bad data directory", dir,
+                                 ec);
+    }
+    dirs.push_back(p.to_utf8_string());
+  }
+  std::sort(dirs.begin(), dirs.end());
+
+  vector<string> entries;
+  for (size_t i = 0; i < dirs.size(); ++i) {
+    const path p(dirs[i]);
+    const string dir_tag = std::to_string(i);
+    for (fs::directory_iterator iter(p), end; iter != end; ++iter) {
+      const path entry = iter->path();
+      const string filename = entry.filename().to_utf8_string();
+      if (!IsScannedConfig(filename)) {
+        continue;
+      }
+      std::error_code ec;
+      // is_regular_file follows symlinks, so a link into the shared data
+      // directory is tracked by the file it points at.
+      if (!fs::is_regular_file(entry, ec) || ec) {
+        continue;
+      }
+      auto size = fs::file_size(entry, ec);
+      if (ec) {
+        continue;
+      }
+      auto mtime = fs::last_write_time(entry, ec);
+      if (ec) {
+        continue;
+      }
+      // Uses the file clock's own tick count rather than to_time_t(): the
+      // latter truncates to whole seconds, so an edit landing in the same
+      // second as the recorded value could go unnoticed. The absolute value is
+      // only ever compared against another reading taken on the same device,
+      // so the epoch it counts from is irrelevant.
+      // Cast to a fixed type first: file_time_type's representation is
+      // implementation defined, and some standard libraries cannot pick a
+      // single std::to_string() overload for its rep type.
+      const auto ticks =
+          static_cast<long long>(mtime.time_since_epoch().count());
+      entries.push_back(dir_tag + "/" + filename + ":" +
+                        std::to_string(size) + ":" + std::to_string(ticks));
+    }
+  }
+  // Sort so that readdir order (which is not stable across runs) cannot
+  // change the digest.
+  std::sort(entries.begin(), entries.end());
+
+  uint64_t hash = 1469598103934665603ULL;  // FNV-1a 64-bit offset basis
+  for (const auto& entry : entries) {
+    for (unsigned char c : entry) {
+      hash ^= c;
+      hash *= 1099511628211ULL;  // FNV prime
+    }
+    hash ^= '\n';
+    hash *= 1099511628211ULL;
+  }
+  char buffer[17];
+  std::snprintf(buffer, sizeof(buffer), "%016llx",
+                static_cast<unsigned long long>(hash));
+  // Prefixed so the value can never be parsed as a number by YAML (a digest
+  // that happened to be all digits would otherwise be emitted unquoted and
+  // read back as an integer), and so a future change to the digest scheme can
+  // be told apart from this one.
+  return string("fp1-") + buffer;
+}
+
+}  // namespace
+
 DetectModifications::DetectModifications(TaskInitializer arg) {
   try {
     data_dirs_ = std::any_cast<vector<path>>(arg);
@@ -52,37 +180,26 @@ DetectModifications::DetectModifications(TaskInitializer arg) {
 }
 
 bool DetectModifications::Run(Deployer* deployer) {
-  time_t last_modified = 0;
+  if (data_dirs_.empty()) {
+    LOG(ERROR) << "DetectModifications: no data directory to scan.";
+    return true;
+  }
+  string fingerprint;
   try {
-    for (auto dir : data_dirs_) {
-      path p = fs::canonical(dir);
-      last_modified = (std::max)(last_modified,
-                                 filesystem::to_time_t(fs::last_write_time(p)));
-      if (fs::is_directory(p)) {
-        for (fs::directory_iterator iter(p), end; iter != end; ++iter) {
-          path entry(iter->path());
-          if (fs::is_regular_file(fs::canonical(entry)) &&
-              entry.extension().to_utf8_string() == ".yaml" &&
-              entry.filename().to_utf8_string() != "user.yaml") {
-            last_modified =
-                (std::max)(last_modified,
-                           filesystem::to_time_t(fs::last_write_time(entry)));
-          }
-        }
-      }
-    }
+    fingerprint = ConfigFingerprint(data_dirs_);
   } catch (const fs::filesystem_error& ex) {
     LOG(ERROR) << "Error reading file information: " << ex.what();
     return true;
   }
-
-  // TODO: store as 64-bit number to avoid the year 2038 problem
-  int last_build_time = 0;
+  string recorded;
   {
     the<Config> user_config(Config::Require("user_config")->Create("user"));
-    user_config->GetInt("var/last_build_time", &last_build_time);
+    if (!user_config->GetString("var/workspace_fingerprint", &recorded)) {
+      LOG(INFO) << "workspace fingerprint not recorded; assuming changes.";
+      return true;
+    }
   }
-  if (last_modified > (time_t)last_build_time) {
+  if (fingerprint != recorded) {
     LOG(INFO) << "modifications detected. workspace needs update.";
     return true;
   }
@@ -517,6 +634,26 @@ bool WorkspaceUpdate::Run(Deployer* deployer) {
             << failure << " failure.";
 
   the<Config> user_config(Config::Require("user_config")->Create("user"));
+  // Record the state of the config files this deployment was built from, so
+  // the next DetectModifications can tell a real edit from unrelated activity
+  // in the same directory. Taken here, after every config-writing step of this
+  // task, so the recorded value describes what was actually deployed.
+  //
+  // The task list still runs user_dict_upgrade and cleanup_trash after this
+  // point; both touch the user data directory (trash/, *.bin, ...), which used
+  // to make the next start see "modifications detected" again when the deploy
+  // crossed a second boundary. They are not config files, so they no longer
+  // take part in the comparison.
+  try {
+    user_config->SetString(
+        "var/workspace_fingerprint",
+        ConfigFingerprint({deployer->user_data_dir, deployer->shared_data_dir}));
+  } catch (const fs::filesystem_error& ex) {
+    // Do not fail the deployment over bookkeeping: leaving the key unset just
+    // means the next start deploys once more.
+    LOG(ERROR) << "Error recording workspace fingerprint: " << ex.what();
+  }
+  // Kept for compatibility: older user.yaml files and external tooling read it.
   // TODO: store as 64-bit number to avoid the year 2038 problem
   user_config->SetInt("var/last_build_time", (int)time(NULL));
 
