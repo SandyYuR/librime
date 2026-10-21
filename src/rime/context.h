@@ -61,6 +61,11 @@ class RIME_DLL Context {
   bool ReopenPreviousSelection();
   bool ClearNonConfirmedComposition();
   bool RefreshNonConfirmedComposition();
+  // Request a rebuild of the non-confirmed composition to be performed once
+  // the current delete_notifier dispatch has finished. Refreshing in the
+  // middle of the dispatch let later listeners observe a different (already
+  // re-translated) candidate and delete a second, unrelated word.
+  void requestCompositionRefresh();
 
   void set_input(const string& value);
   const string& input() const { return input_; }
@@ -128,6 +133,7 @@ class RIME_DLL Context {
   map<string, string> properties_;
   vector<size_t> tab_cursors_;
   vector<TabConstraint> tab_constraints_;
+  bool composition_refresh_pending_ = false;
 
   Notifier commit_notifier_;
   Notifier select_notifier_;
