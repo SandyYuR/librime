@@ -18,8 +18,8 @@
 
 1. 从 zhongzhou 新开功能/升级分支。按功能提交源码和必要测试，勿在官方跟踪分支上开发。
 2. 更新上游时配置 upstream=https://github.com/rime/librime，获取官方固定提交，在工作分支合并、解决冲突，并更新 manifest.json 的 upstream_commit。migration 字段是初次迁移的历史，不随日常功能改动重写。
-3. 运行引擎测试，审查音节选择、忘词、重新学习、rewriter、部署与启动指纹；提交 PR 到 zhongzhou。已发布提交保留不可变标签，不强推替换已发布历史。
-4. 在 prebuilder 工作分支把 librime gitlink 更新到验证后的确切提交，执行 librime-only，检查四 ABI 与原生测试。
+3. 运行引擎测试，审查音节选择、忘词、重新学习、rewriter、部署与启动指纹；提交 PR 到 zhongzhou。必须等 PR 最新提交的 Commit CI 全部通过，确认格式检查及 Linux、macOS、Windows、Docker 任务没有因前置失败而跳过，才可合并。合并后的 zhongzhou CI 也须通过后再推进下游。已发布提交保留不可变标签，不强推替换已发布历史。
+4. 在 prebuilder 工作分支把 librime gitlink 更新到上述已通过 CI 的确切提交，执行 librime-only；四 ABI、原生测试和源码契约检查全部通过后，才可合并并推进 prebuilt。prebuilder 的成功不能代替源码仓库自身的 CI。
 5. 核对插件、依赖与逐 ABI 产物摘要，提交到 prebuilt 的工作分支；输入法再更新其 native/prebuilt gitlink，完成 APK 与设备回归。
 
 不会通过追踪移动分支自动改变已发布 APK。回退时恢复固定的源码/产物提交，保留用户数据。
