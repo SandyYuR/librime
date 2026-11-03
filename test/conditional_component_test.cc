@@ -62,7 +62,9 @@ int CountingFilter::calls = 0;
 class CountingTabTranslator : public Translator {
  public:
   explicit CountingTabTranslator(const Ticket& ticket) : Translator(ticket) {}
-  an<Translation> Query(const string&, const Segment&) override { return nullptr; }
+  an<Translation> Query(const string&, const Segment&) override {
+    return nullptr;
+  }
   void CollectInputTabs(size_t, vector<InputTabEntry>* tabs) const override {
     ++tab_calls;
     tabs->push_back(InputTabEntry{});
@@ -121,7 +123,8 @@ class ConditionalComponentTest : public ::testing::Test {
                                   new Component<CountingSegmentor>);
     Registry::instance().Register("test_counting_filter",
                                   new Component<CountingFilter>);
-    Registry::instance().Register("test_counting_tabs", new Component<CountingTabTranslator>);
+    Registry::instance().Register("test_counting_tabs",
+                                  new Component<CountingTabTranslator>);
     CountingTabTranslator::tab_calls = 0;
     CountingTabTranslator::dictionary_calls = 0;
     CountingProcessor::calls = 0;

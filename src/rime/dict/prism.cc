@@ -241,10 +241,9 @@ bool Prism::Build(const Syllabary& syllabary,
       size_t desc_pos = 0;
       for (auto j = i->second.begin(); j != i->second.end(); ++j, ++desc_pos) {
         // CopyString() 也会分配，可能扩容并重新映射，故每轮重新取得指针
-        auto desc =
-            &Rebase<prism::SpellingMap>(spelling_map_offset)
-                 ->at[item_pos]
-                 .at[desc_pos];
+        auto desc = &Rebase<prism::SpellingMap>(spelling_map_offset)
+                         ->at[item_pos]
+                         .at[desc_pos];
         desc->syllable_id = syllable_to_id[j->str];
         // 打包寫入 type + is_correction
         int32_t packed_type = static_cast<int32_t>(j->properties.type);

@@ -129,8 +129,8 @@ string ConfigFingerprint(const vector<path>& data_dirs) {
       // single std::to_string() overload for its rep type.
       const auto ticks =
           static_cast<long long>(mtime.time_since_epoch().count());
-      entries.push_back(dir_tag + "/" + filename + ":" +
-                        std::to_string(size) + ":" + std::to_string(ticks));
+      entries.push_back(dir_tag + "/" + filename + ":" + std::to_string(size) +
+                        ":" + std::to_string(ticks));
     }
   }
   // Sort so that readdir order (which is not stable across runs) cannot
@@ -157,7 +157,6 @@ string ConfigFingerprint(const vector<path>& data_dirs) {
 }
 
 }  // namespace
-
 
 static bool MaybeCreateDirectory(path dir);
 
@@ -304,9 +303,11 @@ bool WorkspaceUpdate::Run(Deployer* deployer) {
     return false;
   }
 
-  const bool rewrite_workspace_started = RewriteCompiler::BeginWorkspace(deployer);
+  const bool rewrite_workspace_started =
+      RewriteCompiler::BeginWorkspace(deployer);
   auto abort_rewrite_workspace = [&] {
-    if (rewrite_workspace_started && !RewriteCompiler::AbortWorkspace(deployer)) {
+    if (rewrite_workspace_started &&
+        !RewriteCompiler::AbortWorkspace(deployer)) {
       LOG(WARNING) << "failed to roll back shared rewrite store.";
     }
   };
@@ -447,9 +448,9 @@ bool WorkspaceUpdate::Run(Deployer* deployer) {
   // crossed a second boundary. They are not config files, so they no longer
   // take part in the comparison.
   try {
-    user_config->SetString(
-        "var/workspace_fingerprint",
-        ConfigFingerprint({deployer->user_data_dir, deployer->shared_data_dir}));
+    user_config->SetString("var/workspace_fingerprint",
+                           ConfigFingerprint({deployer->user_data_dir,
+                                              deployer->shared_data_dir}));
   } catch (const fs::filesystem_error& ex) {
     // Do not fail the deployment over bookkeeping: leaving the key unset just
     // means the next start deploys once more.

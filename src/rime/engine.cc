@@ -102,7 +102,8 @@ class ConcreteEngine : public Engine {
   virtual void CommitText(string text);
   virtual void Compose(Context* ctx);
 
-  void CollectInputTabs(size_t pos, vector<InputTabEntry>* tabs) const override {
+  void CollectInputTabs(size_t pos,
+                        vector<InputTabEntry>* tabs) const override {
     for (const auto& entry : translators_) {
       if (entry.enabled)
         entry.component->CollectInputTabs(pos, tabs);
@@ -112,7 +113,8 @@ class ConcreteEngine : public Engine {
     for (const auto& entry : translators_) {
       if (!entry.enabled)
         continue;
-      if (auto* dict = entry.component->primary_dictionary(); dict && dict->loaded())
+      if (auto* dict = entry.component->primary_dictionary();
+          dict && dict->loaded())
         return dict;
     }
     return nullptr;
