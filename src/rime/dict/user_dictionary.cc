@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
+#include <mutex>
 #include <boost/algorithm/string.hpp>
 #include <boost/scope_exit.hpp>
 #include <rime/common.h>
@@ -152,8 +153,38 @@ bool UserDictEntryIterator::Next() {
 
 // UserDictionary members
 
+an<UserDictionary::CacheState> UserDictionary::GetCacheState(const an<Db>& db) {
+  static std::mutex mutex;
+  static std::unordered_map<Db*, weak<CacheState>> states;
+  std::lock_guard<std::mutex> lock(mutex);
+  for (auto it = states.begin(); it != states.end();) {
+    if (it->second.expired())
+      it = states.erase(it);
+    else
+      ++it;
+  }
+  if (!db)
+    return New<CacheState>();
+  auto& slot = states[db.get()];
+  auto state = slot.lock();
+  if (!state) {
+    state = New<CacheState>();
+    slot = state;
+  }
+  return state;
+}
+
 UserDictionary::UserDictionary(const string& name, an<Db> db)
-    : name_(name), db_(db) {}
+    : name_(name),
+      db_(db),
+      cache_state_(GetCacheState(db)),
+      tick_(cache_state_->tick),
+      transaction_time_(cache_state_->transaction_time),
+      cache_built_(cache_state_->cache_built),
+      cache_built_tick_(cache_state_->cache_built_tick),
+      cache_blob_(cache_state_->cache_blob),
+      cache_(cache_state_->cache),
+      pending_(cache_state_->pending) {}
 
 UserDictionary::~UserDictionary() {
   if (loaded()) {
@@ -181,7 +212,10 @@ bool UserDictionary::Load() {
   }
   if (!(FetchTickCount() || Initialize()))
     return false;
-  BuildCache();
+#if RIME_USER_DICT_CACHE_ENABLED
+  if (!cache_built_)
+    BuildCache();
+#endif
   return true;
 }
 
@@ -307,10 +341,11 @@ void UserDictionary::DfsLookup(const SyllableGraph& syll_graph,
 
 // Build sorted cache from DB at load time.
 bool UserDictionary::BuildCache() {
+  cache_built_ = false;
   cache_.clear();
   cache_blob_.clear();
   auto accessor = db_->Query("");
-  if (!accessor || !accessor->Jump(" "))
+  if (!accessor || (!accessor->Jump(" ") && !accessor->exhausted()))
     return false;
   struct CacheEntryRecord {
     size_t code_off;
@@ -359,7 +394,9 @@ bool UserDictionary::BuildCache() {
            return a.code < b.code;
          return a.text < b.text;
        });
-  pending_.clear();
+  auto transactional = As<Transactional>(db_);
+  if (!transactional || !transactional->in_transaction())
+    pending_.clear();
   cache_built_tick_ = tick_;
   cache_built_ = true;
   LOG(INFO) << "user dict cache rebuilt: " << cache_.size() << " entries, "
@@ -412,26 +449,26 @@ void UserDictionary::RecruitPredictiveEntry(
     double credibility,
     double quality_len,
     hash_map<int, DictEntryList>* result) {
-  RecruitCacheEntry(entry, end_pos, {}, present_tick, credibility, quality_len,
-                    result);
-  auto& entries = (*result)[end_pos];
-  auto& e = entries.back();
-  // convert code string to numeric syllable ids
+  // Build numeric code from entry's string code
   vector<string> syllables = strings::split(std::string(entry.code), " ",
                                             strings::SplitBehavior::SkipToken);
   Code numeric_code;
+  numeric_code.reserve(syllables.size());
   for (const auto& s : syllables) {
     auto found = syllabary_.find(s);
     if (found == syllabary_.end()) {
       LOG(ERROR) << "failed to recruit predictive entry '" << entry.text
                  << "', unrecognized syllable: " << s;
-      entries.pop_back();
       return;
     }
     numeric_code.push_back(found->second);
   }
-  e->code = numeric_code;
-  e->matching_code_size = matching_code_size;
+
+  // Recruit with the numeric code
+  RecruitCacheEntry(entry, end_pos, numeric_code, present_tick, credibility,
+                    quality_len, result);
+  // Set matching_code_size for predictive entries
+  (*result)[end_pos].back()->matching_code_size = matching_code_size;
 }
 
 // CacheLookup replaces DfsLookup when cache is available.
@@ -468,6 +505,13 @@ void UserDictionary::CacheLookup(const SyllableGraph& syll_graph,
           cache_.begin(), cache_.end(), prefix,
           [](const CacheEntry& e, const string& p) { return e.code < p; });
 
+      // Helper lambda to reduce repeated parameters
+      auto recruit = [&](const CacheEntry& entry) {
+        RecruitCacheEntry(entry, end_pos, state->code, state->present_tick,
+                          state->credibility.back(), state->quality_len.back(),
+                          &state->query_result);
+      };
+
       // collect exact-matching entries (code == prefix)
       hash_set<std::string_view> seen;
       if (!pending_.empty()) {
@@ -481,18 +525,13 @@ void UserDictionary::CacheLookup(const SyllableGraph& syll_graph,
               overridden = true;
             } else {
               // use updated entry from pending
-              RecruitCacheEntry(
-                  {p.code, p.text, p.dee, p.commits, p.tick}, end_pos,
-                  state->code, state->present_tick, state->credibility.back(),
-                  state->quality_len.back(), &state->query_result);
+              recruit({p.code, p.text, p.dee, p.commits, p.tick});
               seen.insert(p.text);
               overridden = true;
             }
           }
           if (!overridden) {
-            RecruitCacheEntry(*it, end_pos, state->code, state->present_tick,
-                              state->credibility.back(),
-                              state->quality_len.back(), &state->query_result);
+            recruit(*it);
             seen.insert(it->text);
           }
           ++it;
@@ -500,9 +539,7 @@ void UserDictionary::CacheLookup(const SyllableGraph& syll_graph,
       } else {
         // fast path: no uncommitted writes; cache_ is authoritative
         while (it != cache_.end() && it->code == prefix) {
-          RecruitCacheEntry(*it, end_pos, state->code, state->present_tick,
-                            state->credibility.back(),
-                            state->quality_len.back(), &state->query_result);
+          recruit(*it);
           ++it;
         }
       }
@@ -513,10 +550,7 @@ void UserDictionary::CacheLookup(const SyllableGraph& syll_graph,
             (p.type == PendingUpdate::kAdd ||
              p.type == PendingUpdate::kUpdate) &&
             seen.find(p.text) == seen.end()) {
-          RecruitCacheEntry({p.code, p.text, p.dee, p.commits, p.tick}, end_pos,
-                            state->code, state->present_tick,
-                            state->credibility.back(),
-                            state->quality_len.back(), &state->query_result);
+          recruit({p.code, p.text, p.dee, p.commits, p.tick});
         }
       }
 
@@ -552,6 +586,14 @@ void UserDictionary::CacheLookup(const SyllableGraph& syll_graph,
           }
         }
         if (!syllabary_.empty()) {
+          // Helper lambda for predictive entries
+          auto recruit_pred = [&](const CacheEntry& entry) {
+            RecruitPredictiveEntry(
+                entry, end_pos, state->depth(), state->present_tick,
+                state->credibility.back(), state->quality_len.back(),
+                &state->query_result);
+          };
+
           // predictive entries from cache (longer codes only)
           auto pred = lower_bound(
               cache_.begin(), cache_.end(), prefix,
@@ -570,20 +612,13 @@ void UserDictionary::CacheLookup(const SyllableGraph& syll_graph,
                 if (p.type == PendingUpdate::kDelete) {
                   overridden = true;
                 } else {
-                  RecruitPredictiveEntry(
-                      {p.code, p.text, p.dee, p.commits, p.tick}, end_pos,
-                      state->depth(), state->present_tick,
-                      state->credibility.back(), state->quality_len.back(),
-                      &state->query_result);
+                  recruit_pred({p.code, p.text, p.dee, p.commits, p.tick});
                   seen_pred.insert(p.text);
                   overridden = true;
                 }
               }
               if (!overridden) {
-                RecruitPredictiveEntry(
-                    *pred, end_pos, state->depth(), state->present_tick,
-                    state->credibility.back(), state->quality_len.back(),
-                    &state->query_result);
+                recruit_pred(*pred);
                 seen_pred.insert(pred->text);
               }
               ++pred;
@@ -591,10 +626,7 @@ void UserDictionary::CacheLookup(const SyllableGraph& syll_graph,
           } else {
             // fast path: no uncommitted writes; cache_ is authoritative
             while (pred != cache_.end() && starts_with(pred->code, prefix)) {
-              RecruitPredictiveEntry(
-                  *pred, end_pos, state->depth(), state->present_tick,
-                  state->credibility.back(), state->quality_len.back(),
-                  &state->query_result);
+              recruit_pred(*pred);
               ++pred;
             }
           }
@@ -604,11 +636,7 @@ void UserDictionary::CacheLookup(const SyllableGraph& syll_graph,
             if (p.code != prefix && starts_with(p.code, prefix) &&
                 seen_pred.find(p.text) == seen_pred.end() &&
                 p.type != PendingUpdate::kDelete) {
-              RecruitPredictiveEntry(
-                  {p.code, p.text, p.dee, p.commits, p.tick}, end_pos,
-                  state->depth(), state->present_tick,
-                  state->credibility.back(), state->quality_len.back(),
-                  &state->query_result);
+              recruit_pred({p.code, p.text, p.dee, p.commits, p.tick});
             }
           }
         }
@@ -767,19 +795,35 @@ bool UserDictionary::UpdateEntry(const DictEntry& entry,
     code_str += ' ';
   }
   string key(code_str + '\t' + entry.text);
+#if RIME_USER_DICT_CACHE_ENABLED
   string code_key(code_str);
+#endif
   string value;
   UserDbValue v;
   TickCount previous_tick = tick_;
   bool existed = db_->Fetch(key, &value);
-  if (existed) {
+#if RIME_USER_DICT_CACHE_ENABLED
+  auto pending = pending_.find(key);
+  if (pending != pending_.end()) {
+    const auto& p = pending->second;
+    v.dee = p.dee;
+    v.commits = p.commits;
+    v.tick = p.tick;
+    existed = true;
+  } else
+#endif
+      if (existed) {
     v.Unpack(value);
+  }
+  if (existed) {
     if (v.tick > tick_) {
       v.tick = tick_;  // fix abnormal timestamp
     }
   } else if (!new_entry_prefix.empty()) {
     key.insert(0, new_entry_prefix);
+#if RIME_USER_DICT_CACHE_ENABLED
     code_key = key.substr(0, key.find('\t'));
+#endif
   }
   // Every update changes the stored value, including dee-only updates.
   bool advance_tick = true;
@@ -804,9 +848,11 @@ bool UserDictionary::UpdateEntry(const DictEntry& entry,
   }
   if (advance_tick && !db_->MetaUpdate("/tick", std::to_string(tick_))) {
     tick_ = previous_tick;
+    cache_built_ = false;
     return false;
   }
 
+#if RIME_USER_DICT_CACHE_ENABLED
   // track change in pending_ for cache consistency
   PendingUpdate pu;
   pu.code = code_key;
@@ -829,17 +875,25 @@ bool UserDictionary::UpdateEntry(const DictEntry& entry,
     pending_[pu.code + '\t' + pu.text] = pu;
   }
   // periodically rebuild cache if pending_ grows too large
-#if RIME_USER_DICT_CACHE_ENABLED
-  if (pending_.size() > 1000)
+  auto transactional = As<Transactional>(db_);
+  if (pending_.size() > 1000 &&
+      (!transactional || !transactional->in_transaction()))
     BuildCache();
+  else if (cache_built_)
+    cache_built_tick_ = tick_;
 #endif
   return true;
 }
 
 bool UserDictionary::UpdateTickCount(TickCount increment) {
-  tick_ += increment;
   try {
-    return db_->MetaUpdate("/tick", std::to_string(tick_));
+    TickCount next_tick = tick_ + increment;
+    if (!db_->MetaUpdate("/tick", std::to_string(next_tick)))
+      return false;
+    tick_ = next_tick;
+    if (cache_built_)
+      cache_built_tick_ = tick_;
+    return true;
   } catch (...) {
     return false;
   }
@@ -850,6 +904,9 @@ bool UserDictionary::Initialize() {
 }
 
 bool UserDictionary::FetchTickCount() {
+  auto transactional = As<Transactional>(db_);
+  if (transactional && transactional->in_transaction())
+    return true;
   string value;
   try {
     // an earlier version mistakenly wrote tick count into an empty key
@@ -885,13 +942,20 @@ bool UserDictionary::RevertRecentTransaction() {
 #if RIME_USER_DICT_CACHE_ENABLED
   cache_built_ = false;
 #endif
+  FetchTickCount();
   return true;
 }
 
 bool UserDictionary::CommitPendingTransaction() {
   auto db = As<Transactional>(db_);
   if (db && db->in_transaction()) {
-    return db->CommitTransaction();
+    bool committed = db->CommitTransaction();
+    if (!committed && !db->in_transaction()) {
+      pending_.clear();
+      cache_built_ = false;
+      FetchTickCount();
+    }
+    return committed;
   }
   return false;
 }
