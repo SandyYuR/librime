@@ -18,3 +18,6 @@ node_modules/
 .DS_Store
 
 build_bench/
+
+# Python Android SDK build helpers
+__pycache__/
