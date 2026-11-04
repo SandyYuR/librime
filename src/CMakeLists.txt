@@ -174,3 +174,22 @@ if(DEFINED RIME_SETUP_EXTRA_MODULES)
   target_compile_definitions(${rime_library} PRIVATE
     "RIME_EXTRA_MODULES=${RIME_SETUP_EXTRA_MODULES}")
 endif()
+
+if(WIN32 AND BUILD_SHARED_LIBS AND BUILD_TEST)
+  # Internal C++ classes used by regression tests are not part of the DLL API.
+  # Link the same implementation into the test executable without DLL imports.
+  add_library(rime-test-engine OBJECT
+    ${rime_core_module_src}
+    ${rime_dict_module_src}
+    ${rime_gears_src}
+    ${rime_levers_src}
+    ${rime_plugins_src})
+  target_compile_definitions(rime-test-engine PRIVATE
+    "RIME_EXTRA_MODULES=${RIME_SETUP_EXTRA_MODULES}")
+  target_link_libraries(rime-test-engine PUBLIC
+    ${rime_core_deps}
+    ${rime_dict_deps}
+    ${rime_gears_deps}
+    ${rime_levers_deps}
+    ${rime_plugins_deps})
+endif()
