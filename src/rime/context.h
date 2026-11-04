@@ -7,6 +7,7 @@
 #ifndef RIME_CONTEXT_H_
 #define RIME_CONTEXT_H_
 
+#include <cstdint>
 #include <rime/common.h>
 #include <rime/commit_history.h>
 #include <rime/composition.h>
@@ -25,10 +26,14 @@ class RIME_DLL Context {
   using KeyEventNotifier =
       signal<void(Context* ctx, const KeyEvent& key_event)>;
 
-  Context() = default;
+  Context();
   ~Context() = default;
 
   bool Commit();
+  // Identity of this context and the currently dispatched commit notification.
+  // A commit id is zero outside Commit(), and never reused within this context.
+  uint64_t context_id() const { return context_id_; }
+  uint64_t commit_id() const { return active_commit_id_; }
   string GetCommitText() const;
   string GetScriptText() const;
   Preedit GetPreedit() const;
@@ -125,6 +130,9 @@ class RIME_DLL Context {
  private:
   string GetSoftCursor() const;
 
+  const uint64_t context_id_;
+  uint64_t commit_sequence_ = 0;
+  uint64_t active_commit_id_ = 0;
   string input_;
   size_t caret_pos_ = 0;
   Composition composition_;

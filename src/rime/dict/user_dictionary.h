@@ -49,6 +49,7 @@ class Schema;
 class Table;
 class Prism;
 class Db;
+class Context;
 struct SyllableGraph;
 struct DfsState;
 struct Ticket;
@@ -83,6 +84,13 @@ class UserDictionary : public Class<UserDictionary, const Ticket&> {
   RIME_DLL bool NewTransaction();
   RIME_DLL bool RevertRecentTransaction();
   RIME_DLL bool CommitPendingTransaction();
+
+  // Automatic learners sharing a DB join one transaction per Context::Commit.
+  // Context-scoped key events cannot finish another context's transaction.
+  // The no-argument methods above retain explicit/manual transaction semantics.
+  RIME_DLL bool NewTransactionForCommit(const Context& context);
+  RIME_DLL bool RevertRecentTransactionForContext(const Context& context);
+  RIME_DLL bool CommitPendingTransactionForContext(const Context& context);
 
   // Rebuild the in-memory cache from DB.
   // Call this after any external DB modification (sync/merge/restore).
@@ -130,6 +138,8 @@ class UserDictionary : public Class<UserDictionary, const Ticket&> {
   struct CacheState {
     TickCount tick = 0;
     time_t transaction_time = 0;
+    uint64_t transaction_context_id = 0;
+    uint64_t transaction_commit_id = 0;
     bool cache_built = false;
     TickCount cache_built_tick = 0;
     std::string cache_blob;
