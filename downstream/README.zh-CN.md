@@ -2,7 +2,7 @@
 
 本仓库复刻自 rime/librime。默认 master 用于跟踪官方源码；中州鹅使用 zhongzhou 分支的固定提交。
 
-引擎功能以本仓库中的源码提交为唯一维护来源。prebuilder 只固定源码、准备插件和执行编译/测试，不能再重复应用已迁入的核心补丁；prebuilt 保存验证后的四 ABI 产物，输入法再固定 prebuilt gitlink。
+引擎功能以本仓库中的源码提交为唯一维护来源。Android 引擎、插件和依赖由本仓库的 Android SDK CI 从源码构建，Release 保存版本化 SDK；输入法固定 SDK 标签、源码提交与包摘要。prebuilder/prebuilt 仅保留历史重建用途，不参与当前构建。详见 [Android SDK 维护](android/README.zh-CN.md)。
 
 ## 已迁入的功能
 
@@ -12,15 +12,15 @@
 - rime/librime PR #1232 的 rewriter；该 PR 尚未进入官方 master，仍由此分支维护。
 - 冷启动配置指纹。
 
-初次迁移时，9 项原补丁分别迁成 9 个提交，源补丁、摘要与提交映射保存在 [manifest.json](manifest.json)。插件仍由 prebuilder 按固定 gitlink 和各自插件补丁准备。本次迁移的核心代码和之前已验证版本逐文件一致。
+初次迁移时，9 项原补丁分别迁成 9 个提交，源补丁、摘要与提交映射保存在 [manifest.json](manifest.json)。插件现在由本仓库的 Android 源码锁和固定补丁准备。本次迁移的核心代码和之前已验证版本逐文件一致。
 
 ## 维护流程
 
 1. 官方 master 跟踪上游，zhongzhou 在固定的官方基线上依次保留仓库特有补丁，保持线性历史。
 2. 更新上游时，先基于 manifest.json 记录的旧 upstream_commit，将仓库特有提交变基到新版官方固定提交；已被官方覆盖的旧补丁跳过。外部 PR 只补齐尚未包含的有效改动，每个 PR 整理为一个提交，在提交说明和 manifest.json 中保留 PR 地址与固定版本。migration 字段是初次迁移的历史，不随变基重写。
 3. 运行引擎测试，审查音节选择、忘词、重新学习、rewriter、部署与启动指纹。工作分支最新提交的 Commit CI 必须全部通过，确认格式检查及 Linux、macOS、Windows、Docker 任务没有因前置失败而跳过。重写 zhongzhou 前保留回退点，用 --force-with-lease 核对远端原版本，已发布标签不移动。更新后的 zhongzhou CI 也须通过后再推进下游。
-4. 在 prebuilder 工作分支把 librime gitlink 更新到上述已通过 CI 的确切提交，执行 librime-only；四 ABI、原生测试和源码契约检查全部通过后，才可合并并推进 prebuilt。prebuilder 的成功不能代替源码仓库自身的 CI。
-5. 核对插件、依赖与逐 ABI 产物摘要，提交到 prebuilt 的工作分支；输入法再更新其 native/prebuilt gitlink，完成 APK 与设备回归。
+4. 由 Android SDK CI 编译固定源码、插件和全部依赖，完成四 ABI 最终链接、原生回归和产物审核；验证通过后创建新的 android-sdk-* 标签发布 SDK。Android 构建成功不能代替源码仓库自身的 CI。
+5. 输入法更新 native/rime-sdk.lock.json 的固定标签、源码提交与包摘要，完成 SDK 下载校验、JNI 链接审计、APK 与设备回归。
 
 不会通过追踪移动分支自动改变已发布 APK。回退时恢复固定的源码/产物提交，保留用户数据。
 
@@ -32,6 +32,16 @@
 - 音节/编码选择 API、忘词刷新和启动配置指纹继续保留；初次迁移记录不重写。三个 PR 的固定来源见 `manifest.json` 的 `upstream_prs`。
 
 本次先变基到上述官方基线，再重放仓库特有补丁。旧的并行部署、用户词典缓存补丁已分别由官方 #1203、#1196 覆盖，不再重复重放；#1232 继续作为独立提交保留，部署钩子适配官方编译图。各补丁的格式修复归入对应提交，不追加 merge 提交。
+
+## 2026-11-06 上游同步与提交整理
+
+官方基线更新到 `2bae6b59b5ebbf2a8af7ffae5b22fbf090f91841`。本轮新增的两项官方改动分别降低词典编译期间的临时内存占用，以及在 `installation.yaml` 根节点不是映射时重建安装信息。官方新增的编译、词典重载和部署恢复回归一并保留。
+
+13 条下游提交整理为 10 条：消歧 API 与其条件门控测试合并；独立 SDK、已固定的依赖升级和 Windows 增量开发入口合并为一个 Android 构建提交。查询缓存、重映射修复、忘词刷新、rewriter、启动指纹、学习事务、基准工具与迁移证据分别保留，避免把不相关的功能揉进同一个提交。
+
+重放后的源码相对旧下游版本只增加上述官方内容变更；重映射后的元数据恢复与官方新增的构建器释放同时保留，配置指纹与安装节点恢复也互不替代。PR #1232 仍停留在 `8530499b19f2944776ba1d6988fc70712ddeacf2`，尚未合入，12 个独立源文件逐字节核对一致。
+
+已合入官方的 #1196 / #1203 继续直接继承；未合入的 glibc 内存归还、日志替换、临时词库发现和词库损坏恢复提案没有被当成现有补丁的等价替代。本轮不再次升级插件或原生依赖。逐组旧提交与检查决定记录在 `manifest.json` 的 `maintenance.last_upstream_review`；初始 `migration` 记录和已发布 SDK 标签保持原值。
 
 ## 同次上屏的用户词学习事务
 
