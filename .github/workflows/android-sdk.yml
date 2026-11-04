@@ -1,0 +1,113 @@
+name: Android SDK
+
+on:
+  push:
+    branches: [zhongzhou, 'build/android-sdk-*']
+    tags: ['android-sdk-*']
+  pull_request:
+    branches: [zhongzhou]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-sdk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [armeabi-v7a, arm64-v8a, x86, x86_64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Check isolated source patching
+        run: python3 -m unittest discover -s downstream/android -p 'test_*.py' -v
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'ndk;28.0.13004108 cmake;3.31.6'
+      - uses: actions/cache@v5
+        with:
+          path: ~/.cache/rime-android-sources
+          key: android-sources-${{ hashFiles('downstream/android/sources.lock.json') }}
+      - name: Build engine, plugins, dependencies and OpenCC data from source
+        env:
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/28.0.13004108
+          CMAKE_BIN: ${{ env.ANDROID_HOME }}/cmake/3.31.6/bin/cmake
+        run: python3 downstream/android/build.py --abi '${{ matrix.abi }}' --work build/android --jobs 2
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android-sdk-${{ matrix.abi }}
+          path: build/android/product/
+
+  host_tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install host test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libboost-all-dev libgoogle-glog-dev libleveldb-dev libmarisa-dev libopencc-dev libyaml-cpp-dev libgtest-dev
+      - name: Run native engine regression tests
+        env:
+          GTEST_OUTPUT: xml:${{ github.workspace }}/build/host/reports/
+        run: |
+          cmake -S . -B build/host -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TEST=ON -DBUILD_TOOLS=OFF
+          cmake --build build/host --parallel 2
+          ctest --test-dir build/host --output-on-failure
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: rime-sdk-host-tests
+          path: |
+            build/host/Testing/
+            build/host/reports/
+
+  package:
+    needs: [build, host_tests]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: android-sdk-*
+          merge-multiple: true
+          path: build/product
+      - name: Verify all four ABIs and assemble the consumer SDK
+        run: python3 downstream/android/package.py build/product --commit "$GITHUB_SHA" --output dist/rime-android-sdk.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rime-android-sdk
+          path: dist/
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/android-sdk-')
+    needs: package
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: rime-android-sdk
+          path: dist
+      - name: Publish the verified immutable engine version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SDK_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$SDK_TAG" dist/rime-android-sdk.zip dist/SHA256SUMS dist/sdk-manifest.json --verify-tag --title "$SDK_TAG" --notes '中州鹅 Android 引擎 SDK；包含四 ABI 的 librime、固定插件与依赖、OpenCC 数据、许可证和逐文件来源摘要。由本标签源码独立构建，不依赖 prebuilder/prebuilt。' --latest=false

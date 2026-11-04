@@ -1,0 +1,2 @@
+downstream/android/sources.lock.json text eol=lf
+downstream/android/patches/*.patch text eol=lf
