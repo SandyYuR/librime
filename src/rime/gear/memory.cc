@@ -126,9 +126,9 @@ bool Memory::ProcessSegmentOnCommit(CommitEntry& commit_entry,
 }
 
 void Memory::OnCommit(Context* ctx) {
-  if (!user_dict_ || user_dict_->readonly())
+  if (!ctx || !user_dict_ || user_dict_->readonly())
     return;
-  StartSession();
+  user_dict_->NewTransactionForCommit(*ctx);
   CommitEntry commit_entry(this);
   for (auto& seg : ctx->composition()) {
     ProcessSegmentOnCommit(commit_entry, seg);
@@ -155,13 +155,14 @@ void Memory::OnDeleteEntry(Context* ctx) {
 }
 
 void Memory::OnUnhandledKey(Context* ctx, const KeyEvent& key) {
-  if (!user_dict_ || user_dict_->readonly())
+  if (!ctx || !user_dict_ || user_dict_->readonly())
     return;
   if ((key.modifier() & ~kShiftMask) == 0) {
-    if (key.keycode() == XK_BackSpace && DiscardSession()) {
+    if (key.keycode() == XK_BackSpace &&
+        user_dict_->RevertRecentTransactionForContext(*ctx)) {
       return;  // forget about last commit
     }
-    FinishSession();
+    user_dict_->CommitPendingTransactionForContext(*ctx);
   }
 }
 

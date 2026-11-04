@@ -5,7 +5,9 @@
 // 2011-05-08 GONG Chen <chen.sst@gmail.com>
 //
 #include <algorithm>
+#include <atomic>
 #include <utility>
+#include <boost/scope_exit.hpp>
 #include <rime/candidate.h>
 #include <rime/context.h>
 #include <rime/menu.h>
@@ -15,9 +17,20 @@ namespace rime {
 
 const string kSelectedBeforeEditing = "selected_before_editing";
 
+Context::Context()
+    : context_id_([] {
+        static std::atomic<uint64_t> next_id{0};
+        return ++next_id;
+      }()) {}
+
 bool Context::Commit() {
   if (!IsComposing())
     return false;
+  const auto previous_commit_id = active_commit_id_;
+  active_commit_id_ = ++commit_sequence_;
+  BOOST_SCOPE_EXIT_ALL(this, previous_commit_id) {
+    active_commit_id_ = previous_commit_id;
+  };
   // notify the engine and interesting components
   commit_notifier_(this);
   // start over
