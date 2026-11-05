@@ -54,7 +54,7 @@ index 4f068d0..187b24a 100644
 -  else()
 -    message(FATAL_ERROR "Lua not found, consider using `bash action-install.sh` to download.")
 -  endif()
-+  find_package(Lua CONFIG)
++  find_package(Lua REQUIRED CONFIG GLOBAL)
 +  set(LUA_TARGET ${LUA_LIBRARY})
 +  include_directories(${LUA_INCLUDE_DIR})
  else()

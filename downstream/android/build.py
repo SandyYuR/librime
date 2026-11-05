@@ -95,13 +95,36 @@ def prepare_source(name, item, sources, cache, patches=True):
 
 
 def cmake_build(cmake, source, build, prefix, jobs, flags=(), targets=(), install=True):
+    # Source archives have no Git metadata. Never let a dependency's version
+    # detection discover the enclosing librime checkout in CI's build/ tree.
+    environment = dict(os.environ, GIT_CEILING_DIRECTORIES=str(source.parent))
     run(cmake, "-S", source, "-B", build, "-G", "Ninja",
         "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
-        f"-DCMAKE_INSTALL_PREFIX={prefix}", "-DCMAKE_INSTALL_LIBDIR=lib", *flags)
+        f"-DCMAKE_INSTALL_PREFIX={prefix}", "-DCMAKE_INSTALL_LIBDIR=lib", *flags,
+        env=environment)
     run(cmake, "--build", build, "--parallel", jobs,
-        *(["--target", *targets] if targets else []))
+        *(["--target", *targets] if targets else []), env=environment)
     if install:
-        run(cmake, "--install", build)
+        run(cmake, "--install", build, env=environment)
+
+
+def verify_opencc_version(build, expected):
+    versions = [line.split(":", 1)[1].strip() for line in (build / "opencc.pc").read_text().splitlines()
+                if line.startswith("Version:")]
+    if versions != [expected]:
+        raise ValueError(f"OpenCC version does not match its locked source: {versions}, expected {expected}")
+
+
+def prepare_boost_headers(source, include, source_sha256):
+    stamp = include / ".android-source"
+    if stamp.exists() and stamp.read_text() == source_sha256:
+        return
+    if include.exists():
+        shutil.rmtree(include)
+    include.mkdir(parents=True)
+    for directory in sorted((source / "libs").rglob("include/boost")):
+        shutil.copytree(directory, include / "boost", dirs_exist_ok=True)
+    stamp.write_text(source_sha256)
 
 
 def copy_licenses(sources, product):
@@ -115,7 +138,7 @@ def copy_licenses(sources, product):
                 shutil.copy2(path, directory / path.name)
         if name == "lua":
             directory.mkdir(exist_ok=True)
-            shutil.copy2(source / "lua-5.4.7/doc/readme.html", directory / "Lua-license.html")
+            shutil.copy2(source / "doc/readme.html", directory / "Lua-license.html")
     shutil.copy2(ROOT / "LICENSE", destination / "librime-LICENSE")
 
 
@@ -161,10 +184,7 @@ def build(args):
     # Boost is header-only on Android. Assemble its modular distribution into
     # the conventional include tree; no host Boost or Android Boost binary.
     boost = work / "boost/include"
-    if not (boost / "boost/version.hpp").exists():
-        boost.mkdir(parents=True, exist_ok=True)
-        for include in sorted((prepared["boost"] / "libs").rglob("include/boost")):
-            shutil.copytree(include, boost / "boost", dirs_exist_ok=True)
+    prepare_boost_headers(prepared["boost"], boost, lock["sources"]["boost"]["sha256"])
     common = [
         f"-DCMAKE_TOOLCHAIN_FILE={ndk}/build/cmake/android.toolchain.cmake",
         f"-DANDROID_ABI={args.abi}", f"-DANDROID_PLATFORM={lock['platform']}",
@@ -177,12 +197,14 @@ def build(args):
         "yaml-cpp": ["-DYAML_CPP_BUILD_CONTRIB=OFF", "-DYAML_CPP_BUILD_TESTS=OFF", "-DYAML_CPP_BUILD_TOOLS=OFF"],
         "leveldb": ["-DLEVELDB_BUILD_TESTS=OFF", "-DLEVELDB_BUILD_BENCHMARKS=OFF", "-DLEVELDB_INSTALL=ON"],
         "marisa": [],
-        "lua": ["-DLUA_BUILD_BINARY=OFF", "-DLUA_BUILD_COMPILER=OFF", "-DLUA_ENABLE_SHARED=OFF", "-DLUA_ENABLE_TESTING=OFF", "-DLUA_SUPPORT_DL=ON"],
-        "opencc": ["-DSHARE_INSTALL_PREFIX=share", "-DINCLUDE_INSTALL_DIR=include", "-DSYSCONF_INSTALL_DIR=etc", "-DLIB_INSTALL_DIR=lib", "-DBUILD_DOCUMENTATION=OFF", "-DBUILD_PYTHON=OFF", "-DENABLE_GTEST=OFF", "-DENABLE_BENCHMARK=OFF", "-DENABLE_DARTS=OFF", "-DUSE_SYSTEM_MARISA=ON", f"-DMarisa_DIR={product}/marisa/{args.abi}/lib/cmake/Marisa", "-DUSE_SYSTEM_PYBIND11=OFF", "-DUSE_SYSTEM_RAPIDJSON=OFF", "-DUSE_SYSTEM_TCLAP=OFF"],
+        "lua": [],
+        "opencc": ["-DSHARE_INSTALL_PREFIX=share", "-DINCLUDE_INSTALL_DIR=include", "-DSYSCONF_INSTALL_DIR=etc", "-DLIB_INSTALL_DIR=lib", "-DBUILD_DOCUMENTATION=OFF", "-DBUILD_PYTHON=OFF", "-DBUILD_OPENCC_JIEBA_PLUGIN=OFF", "-DENABLE_GTEST=OFF", "-DENABLE_BENCHMARK=OFF", "-DUSE_SYSTEM_MARISA=ON", f"-DMarisa_DIR={product}/marisa/{args.abi}/lib/cmake/Marisa", "-DUSE_SYSTEM_PYBIND11=OFF", "-DUSE_SYSTEM_RAPIDJSON=OFF", "-DUSE_SYSTEM_TCLAP=OFF"],
     }
     for name in ("glog", "yaml-cpp", "leveldb", "marisa", "lua", "opencc"):
         cmake_build(cmake, prepared[name], work / "cmake" / args.abi / name,
                     product / name / args.abi, args.jobs, common + flags[name])
+        if name == "opencc":
+            verify_opencc_version(work / "cmake" / args.abi / name, lock["sources"]["opencc"]["version"])
     # Generate OpenCC dictionaries using native host tools, never Android
     # executables or files copied out of the retired artifact repository.
     host = work / "host"
@@ -197,8 +219,9 @@ def build(args):
         apply_patch(host_opencc, patch_path)
         (host_opencc / ".host-patched").touch()
     cmake_build(cmake, host_opencc, work / "cmake/host/opencc", product / "opencc",
-                args.jobs, [f"-DCMAKE_PREFIX_PATH={host}", "-DBUILD_SHARED_LIBS=OFF", "-DENABLE_GTEST=OFF"],
+                args.jobs, [f"-DCMAKE_PREFIX_PATH={host}", "-DBUILD_SHARED_LIBS=OFF", "-DENABLE_GTEST=OFF", "-DBUILD_OPENCC_JIEBA_PLUGIN=OFF"],
                 targets=["opencc_dict", "Dictionaries"], install=False)
+    verify_opencc_version(work / "cmake/host/opencc", lock["sources"]["opencc"]["version"])
     run(cmake, "--install", work / "cmake/host/opencc", "--component", "data")
     roots = ";".join([str(work / "boost"), *(str(product / name / args.abi) for name in flags)])
     cmake_build(cmake, core, work / "cmake" / args.abi / "librime", product / "librime" / args.abi,

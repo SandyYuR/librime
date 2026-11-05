@@ -24,10 +24,10 @@
     },
     "leveldb": {
       "repository": "https://github.com/google/leveldb",
-      "commit": "99b3c03b3284f5886f9ef9a4ef703d57373e61be",
-      "url": "https://codeload.github.com/google/leveldb/tar.gz/99b3c03b3284f5886f9ef9a4ef703d57373e61be",
+      "commit": "bb74ef739973a70ca9f0d90788a1da89b788c0ad",
+      "url": "https://codeload.github.com/google/leveldb/tar.gz/bb74ef739973a70ca9f0d90788a1da89b788c0ad",
       "patches": [],
-      "sha256": "bc87b9bbc5674c91246a89813355e78401759761342cc049e1c3d56350a8a9d1"
+      "sha256": "fa5cad533bef27fb0d693c10fe14b40c4b920813340d7c8aeccfa17c4fd2a73d"
     },
     "yaml-cpp": {
       "repository": "https://github.com/jbeder/yaml-cpp",
@@ -50,55 +50,56 @@
     },
     "opencc": {
       "repository": "https://github.com/BYVoid/OpenCC",
-      "commit": "907bfcbbd3aae86ff04bc8eaca67c8af03108ddf",
-      "url": "https://codeload.github.com/BYVoid/OpenCC/tar.gz/907bfcbbd3aae86ff04bc8eaca67c8af03108ddf",
+      "commit": "025f371dc76b598d77384fbdab90c937471844d8",
+      "url": "https://codeload.github.com/BYVoid/OpenCC/tar.gz/025f371dc76b598d77384fbdab90c937471844d8",
       "patches": [
         {
           "file": "opencc.patch",
-          "sha256": "ae726511fc2bb6e0ae99658410a355bbc2aacbc2d291c3666fa2497a93328e95"
+          "sha256": "8b95aec651f9605ef9f68962a12aebaa593ee84427f02298cf64fcc3f9be8fd4"
         },
         {
           "file": "opencc-host.patch",
-          "sha256": "9c178eaa6d66d5a11917486bd746c592f874ecad16d3b6c947d4c04e8fcedda4"
+          "sha256": "d4b96bdb25102981cffff1af89b38d50f2ccf3fa8542cdd14f1f65b8d77b020f"
         }
       ],
-      "sha256": "6d87833234227dcb2ef190b12c7051859195dbe07f0c69fc66455c610d3e8267"
+      "sha256": "8b27931630abab1136b7c3ee920e4a95e78cb84a3cab4670198172bc82104844",
+      "version": "1.4.2"
     },
     "lua": {
-      "repository": "https://github.com/walterschell/Lua",
-      "commit": "504ef66d500fa1fb4f1684b6617b01342eee704a",
-      "url": "https://codeload.github.com/walterschell/Lua/tar.gz/504ef66d500fa1fb4f1684b6617b01342eee704a",
+      "repository": "https://www.lua.org/",
+      "url": "https://www.lua.org/ftp/lua-5.4.9.tar.gz",
       "patches": [
         {
           "file": "lua.patch",
-          "sha256": "5bccb7481f912b3f9e36268158d1756911216e40b9e356306086180730899708"
+          "sha256": "74c866a6d8d7bb9a57a800de39c3c7f0db5952fc6a74ca541f2af2633257609c"
         }
       ],
-      "sha256": "e1f4b21091b5011e0e61c2d3ed7b9316d432dd1208e69119067437b03807c94b"
+      "sha256": "2335b6c582a52654f94612bf10d2f4672805d05329aa6568b1d8cd9e5c6fb8e6",
+      "version": "5.4.9"
     },
     "librime-lua": {
       "repository": "https://github.com/hchunhui/librime-lua",
-      "commit": "68f9c364a2d25a04c7d4794981d7c796b05ab627",
-      "url": "https://codeload.github.com/hchunhui/librime-lua/tar.gz/68f9c364a2d25a04c7d4794981d7c796b05ab627",
+      "commit": "6da5d6cedb853380ed1b5b9b6979cb1a9c028353",
+      "url": "https://codeload.github.com/hchunhui/librime-lua/tar.gz/6da5d6cedb853380ed1b5b9b6979cb1a9c028353",
       "patches": [
         {
           "file": "librime-lua.patch",
-          "sha256": "393ac2fd11762a3bf8b3670273625f0ef8037f1869bf0b680874c3cb0ea615e2"
+          "sha256": "478710509011e5977346239244bfdc79d8a956945e4187d8ff75d518876f0aeb"
         }
       ],
-      "sha256": "3c4a60bacf8dd6389ca1b4b4889207b8f6c0c6a43e7b848cdac570d592a640b5"
+      "sha256": "300a65a7bdb59496cdfb49d70f2137f838bc44d8e889a2c37c332f4dee8bf52e"
     },
     "librime-octagram": {
       "repository": "https://github.com/lotem/librime-octagram",
-      "commit": "dfcc15115788c828d9dd7b4bff68067d3ce2ffb8",
-      "url": "https://codeload.github.com/lotem/librime-octagram/tar.gz/dfcc15115788c828d9dd7b4bff68067d3ce2ffb8",
+      "commit": "57d18b9f58e5284bd891d559f6bdd16cf60341e9",
+      "url": "https://codeload.github.com/lotem/librime-octagram/tar.gz/57d18b9f58e5284bd891d559f6bdd16cf60341e9",
       "patches": [
         {
           "file": "librime-octagram.patch",
           "sha256": "a9482101331da85035e3dbd7347ced64b6e89e09b216ff45331d419b56aaa89c"
         }
       ],
-      "sha256": "7da3df7a5dae82557f7a4842b94dfe81dd21ef7e036b132df0f462f2dae18393"
+      "sha256": "7b9c77bcf17566b64204791b72cdb1b4471e22efec5eef9b79ca764ab99a1576"
     },
     "librime-predict": {
       "repository": "https://github.com/fxliang/librime-predict-leveldb",
@@ -113,9 +114,9 @@
       "sha256": "7f957dbd8182aa465b3b54154f88aefc41646ce4f08e198f2edd98e38f0ef951"
     },
     "boost": {
-      "version": "1.90.0",
-      "url": "https://github.com/boostorg/boost/releases/download/boost-1.90.0/boost-1.90.0-cmake.tar.xz",
-      "sha256": "aca59f889f0f32028ad88ba6764582b63c916ce5f77b31289ad19421a96c555f",
+      "version": "1.92.0",
+      "url": "https://github.com/boostorg/boost/releases/download/boost-1.92.0/boost-1.92.0-cmake.tar.xz",
+      "sha256": "9bed76128d4e46755dbe818487788c6fceb6f72b378f4daa49b7e1e600d9088d",
       "patches": []
     }
   }

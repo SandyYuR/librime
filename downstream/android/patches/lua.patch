@@ -1,14 +1,66 @@
-diff --git a/lua-5.4.7/src/liolib.c b/lua-5.4.7/src/liolib.c
-index c5075f3..1946943 100644
---- a/lua-5.4.7/src/liolib.c
-+++ b/lua-5.4.7/src/liolib.c
-@@ -115,7 +115,8 @@ static int l_checkmode (const char *mode) {
+diff --git a/src/liolib.c b/src/liolib.c
+--- a/src/liolib.c
++++ b/src/liolib.c
+@@ -54,7 +54,8 @@
+ 
+ #if !defined(l_popen)		/* { */
+ 
+-#if defined(LUA_USE_POSIX)	/* { */
++#if defined(LUA_USE_POSIX) && \
++   (!defined(__ANDROID__) || defined(__LP64__) || __ANDROID_API__ >= 24)	/* { */
+ 
+ #define l_popen(L,c,m)		(fflush(NULL), popen(c,m))
+ #define l_pclose(L,file)	(pclose(file))
+@@ -115,7 +116,8 @@
  
  #if !defined(l_fseek)		/* { */
  
 -#if defined(LUA_USE_POSIX)	/* { */
 +#if defined(LUA_USE_POSIX) && \
-+   (!defined(ANDROID) || (defined(__LP64__) || ANDROID_PLATFORM >= 24))	/* { */
++   (!defined(__ANDROID__) || defined(__LP64__) || __ANDROID_API__ >= 24)	/* { */
  
  #include <sys/types.h>
  
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+new file mode 100644
+--- /dev/null
++++ b/CMakeLists.txt
+@@ -0,0 +1,27 @@
++cmake_minimum_required(VERSION 3.15)
++project(Lua VERSION 5.4.9 LANGUAGES C)
++include(GNUInstallDirs)
++include(CMakePackageConfigHelpers)
++
++file(GLOB lua_sources CONFIGURE_DEPENDS src/*.c)
++list(REMOVE_ITEM lua_sources "${CMAKE_CURRENT_SOURCE_DIR}/src/lua.c"
++                             "${CMAKE_CURRENT_SOURCE_DIR}/src/luac.c")
++add_library(lua_static STATIC ${lua_sources})
++target_include_directories(lua_static PUBLIC
++  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
++  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
++target_compile_definitions(lua_static PRIVATE LUA_USE_POSIX LUA_USE_DLOPEN)
++target_link_libraries(lua_static PUBLIC m ${CMAKE_DL_LIBS})
++install(TARGETS lua_static EXPORT LuaTargets
++  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
++install(FILES src/lua.h src/luaconf.h src/lualib.h src/lauxlib.h src/lua.hpp
++  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
++install(EXPORT LuaTargets NAMESPACE Lua:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Lua)
++configure_package_config_file(LuaConfig.cmake.in LuaConfig.cmake
++  INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Lua
++  PATH_VARS CMAKE_INSTALL_INCLUDEDIR)
++write_basic_package_version_file(LuaConfigVersion.cmake VERSION ${PROJECT_VERSION}
++  COMPATIBILITY SameMinorVersion)
++install(FILES ${CMAKE_CURRENT_BINARY_DIR}/LuaConfig.cmake
++              ${CMAKE_CURRENT_BINARY_DIR}/LuaConfigVersion.cmake
++  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Lua)
+diff --git a/LuaConfig.cmake.in b/LuaConfig.cmake.in
+new file mode 100644
+--- /dev/null
++++ b/LuaConfig.cmake.in
+@@ -0,0 +1,6 @@
++@PACKAGE_INIT@
++include("${CMAKE_CURRENT_LIST_DIR}/LuaTargets.cmake")
++set_and_check(LUA_INCLUDE_DIR "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
++set(LUA_LIBRARY Lua::lua_static)
++set(LUA_LIBRARIES Lua::lua_static)
++check_required_components(Lua)

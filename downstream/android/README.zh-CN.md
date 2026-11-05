@@ -28,4 +28,14 @@ SDK 只包含 Direct Rime 实际使用的七个静态库、头文件、OpenCC �
 
 ## 迁移来源与署名
 
-构建参数和插件/依赖补丁迁自 `SandyYuR/prebuilder@6ffb3f230260c53851d1e9ebc60d4edc7a2f868f`；其来源为 Fcitx5 for Android prebuilder。保留原补丁内容和其中的作者署名，`librime-lua.patch` 的原作者为 Rocka。依赖和插件保持迁移前固定版本，本次不改变引擎功能或方案配置。旧仓库及历史标签保留，支持重建此前发布版本。
+构建参数和插件/依赖补丁迁自 `SandyYuR/prebuilder@6ffb3f230260c53851d1e9ebc60d4edc7a2f868f`；其来源为 Fcitx5 for Android prebuilder。保留原补丁的作者署名，`librime-lua.patch` 的原作者为 Rocka。旧仓库及历史标签保留，支持重建此前发布版本。
+
+## 依赖更新
+
+依赖不会自动跟随上游分支；`sources.lock.json` 的 URL 和 SHA-256 决定实际使用的源码。升级时同时更新版本或提交、源码 URL、源码摘要，检查本地补丁并更新其摘要。补丁或安装布局改变时一并调整构建配方。每次依赖升级都发布新的 SDK 标签，再由输入法更新 SDK 锁；已发布版本不覆盖。
+
+2026-11-05 更新 Lua 5.4.7 → 5.4.9、Boost 1.90.0 → 1.92.0、OpenCC → 1.4.2，并同步 librime-lua、octagram、LevelDB 的固定上游提交。Lua 使用 lua.org 官方 5.4.9 源码包及最小 CMake 安装配方，保留 32 位 Android API 23 的文件定位兼容补丁；不跨越到 Lua 5.5。OpenCC 的 Android 库与主机生成工具使用同一版本源码。predict 无后续提交；glog 0.7.1、yaml-cpp 0.9.0、Marisa 0.3.1 已是最新正式版，保持原版本。
+
+复用构建目录时，Boost 头文件缓存按源码摘要重新生成，避免依赖锁已更新而实际仍编译旧头文件。Android SDK CI 的主机回归使用 Ubuntu 系统依赖，不能替代升级组件在 Android 上的运行验证。
+
+依赖配方的配置、编译和安装均限制 Git 向父目录查找，避免 OpenCC 在 CI 的嵌套源码目录中误用 librime 标签生成自身版本号。Android 库与主机工具都校验生成的 OpenCC 版本必须与依赖锁完全一致。
