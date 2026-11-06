@@ -47,6 +47,10 @@ python downstream/android/package.py D:/GitHub/tools/rime-build/windows/product 
 
 ## 依赖更新
 
+用户词典管理通过 `ListUserDictNames` 排除恢复流程保留的 `.temp` 临时库（默认落盘为 `.temp.userdb`），避免残留目录被列为待同步词典。枚举不删除目录，也不忽略其他以点开头的有效词典。`test/user_dict_manager_test.cc` 验证枚举及仅有临时库残留时的同步结果。该源码补丁只有在重新构建并消费对应 SDK 后生效；应用侧捕获同步异常不能替代引擎更新。
+
+临时库由 `UserDictManager::Restore` 在同步快照合并、词库恢复或旧格式升级时创建；正常退出会清理，进程中断或打开／清理失败可能留下残留。回归同时使用真实 LevelDB 验证普通词典备份、其他设备快照合并、坏库失败仍能上报，以及正常库内容不会丢失。
+
 依赖不会自动跟随上游分支；`sources.lock.json` 的 URL 和 SHA-256 决定实际使用的源码。升级时同时更新版本或提交、源码 URL、源码摘要，检查本地补丁并更新其摘要。补丁或安装布局改变时一并调整构建配方。每次依赖升级都发布新的 SDK 标签，再由输入法更新 SDK 锁；已发布版本不覆盖。
 
 2026-11-05 更新 Lua 5.4.7 → 5.4.9、Boost 1.90.0 → 1.92.0、OpenCC → 1.4.2，并同步 librime-lua、octagram、LevelDB 的固定上游提交。Lua 使用 lua.org 官方 5.4.9 源码包及最小 CMake 安装配方，保留 32 位 Android API 23 的文件定位兼容补丁；不跨越到 Lua 5.5。OpenCC 的 Android 库与主机生成工具使用同一版本源码。predict 无后续提交；glog 0.7.1、yaml-cpp 0.9.0、Marisa 0.3.1 已是最新正式版，保持原版本。

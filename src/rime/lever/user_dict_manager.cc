@@ -15,6 +15,7 @@
 #include <rime/dict/table_db.h>
 #include <rime/dict/user_db.h>
 #include <rime/lever/user_dict_manager.h>
+#include <rime/lever/user_dict_files.h>
 
 namespace fs = std::filesystem;
 
@@ -39,13 +40,7 @@ void UserDictManager::GetUserDictList(UserDictList* user_dict_list,
     LOG(INFO) << "directory '" << path_ << "' does not exist.";
     return;
   }
-  for (fs::directory_iterator it(path_), end; it != end; ++it) {
-    string name = path(it->path().filename()).to_utf8_string();
-    if (boost::ends_with(name, component->extension())) {
-      boost::erase_last(name, component->extension());
-      user_dict_list->push_back(name);
-    }
-  }
+  *user_dict_list = ListUserDictNames(path_, component->extension());
 }
 
 bool UserDictManager::Backup(const string& dict_name) {
