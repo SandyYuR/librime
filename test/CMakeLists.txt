@@ -10,7 +10,8 @@ set(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/test)
 if(TARGET rime-test-engine)
   set(memory_test_src
     ${CMAKE_CURRENT_SOURCE_DIR}/commit_round_test.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/memory_transaction_test.cc)
+    ${CMAKE_CURRENT_SOURCE_DIR}/memory_transaction_test.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/user_dict_manager_test.cc)
   list(REMOVE_ITEM rime_test_src ${memory_test_src})
   add_executable(rime_memory_test rime_test_main.cc ${memory_test_src})
   target_sources(rime_memory_test PRIVATE ${rime_plugins_objs})
