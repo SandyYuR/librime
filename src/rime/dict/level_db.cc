@@ -248,7 +248,8 @@ bool LevelDb::Remove() {
   }
   auto status = leveldb::DestroyDB(file_path().string(), leveldb::Options());
   if (!status.ok()) {
-    LOG(ERROR) << "Error removing db '" << name() << "': " << status.ToString();
+    LOG(ERROR) << "Error removing db '" << name() << "' at " << file_path()
+               << ": " << status.ToString();
     return false;
   }
   return true;
@@ -271,7 +272,8 @@ bool LevelDb::Open() {
       }
     }
   } else {
-    LOG(ERROR) << "Error opening db '" << name() << "': " << status.ToString();
+    LOG(ERROR) << "Error opening db '" << name() << "' at " << file_path()
+               << ": " << status.ToString();
   }
   return loaded_;
 }
@@ -285,7 +287,8 @@ bool LevelDb::OpenReadOnly() {
   loaded_ = status.ok();
 
   if (!loaded_) {
-    LOG(ERROR) << "Error opening db '" << name() << "' read-only.";
+    LOG(ERROR) << "Error opening db '" << name() << "' read-only at "
+               << file_path() << ": " << status.ToString();
   }
   return loaded_;
 }

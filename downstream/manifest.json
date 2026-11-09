@@ -3,7 +3,7 @@
   "repository": "https://github.com/SandyYuR/librime",
   "maintenance_branch": "zhongzhou",
   "upstream_repository": "https://github.com/rime/librime",
-  "upstream_commit": "2bae6b59b5ebbf2a8af7ffae5b22fbf090f91841",
+  "upstream_commit": "a104ec6cafdb61a19f0e79707741733a0963c431",
   "migration": {
     "prebuilder_commit": "bcfb896fd531caad2e95b8a580b45fb58956f171",
     "core_tree": "e90ec6076ac7177853dc8fac39b2a35b80590ceb",
@@ -93,6 +93,20 @@
       "adapted_files": [
         "src/rime/lever/deployment_tasks.cc"
       ]
+    },
+    {
+      "number": 1247,
+      "url": "https://github.com/rime/librime/pull/1247",
+      "integration": "equivalent-extended-downstream",
+      "commit": "970abac803f91d75500a9819702139bf8babfb02",
+      "merged": false,
+      "scope": "保留精确排除 .temp 的行为，并在下游扩展临时库清理、失败传播与回归。"
+    },
+    {
+      "number": 1268,
+      "url": "https://github.com/rime/librime/pull/1268",
+      "integration": "upstream-master",
+      "commit": "a104ec6cafdb61a19f0e79707741733a0963c431"
     }
   ],
   "maintenance": {
@@ -113,27 +127,35 @@
       }
     ],
     "last_upstream_review": {
-      "date": "2026-11-06",
-      "previous_upstream_commit": "9777cb2f25ff15116d6720141e7f0e539ac68063",
-      "upstream_commit": "2bae6b59b5ebbf2a8af7ffae5b22fbf090f91841",
-      "previous_downstream_commit": "30511eed172a8a8ee08b8532fe097febcd75e514",
+      "date": "2026-11-10",
+      "previous_upstream_commit": "2bae6b59b5ebbf2a8af7ffae5b22fbf090f91841",
+      "upstream_commit": "a104ec6cafdb61a19f0e79707741733a0963c431",
+      "previous_downstream_commit": "483ffbca5fdfa8a13698d28085e3154d48e435b3",
       "upstream_changes": [
         {
-          "commit": "0ed3f95b7f1b9e89705924facddd318445a2ab05",
-          "scope": "降低词典编译期间的临时内存占用，保留其新增回归。"
+          "commit": "40d51ac58d1c4c2e7eccc81e6b4ccc9616705160",
+          "scope": "补齐配置编译器接口的虚析构，原样保留。"
         },
         {
-          "commit": "2bae6b59b5ebbf2a8af7ffae5b22fbf090f91841",
-          "pull_request": 1264,
-          "scope": "恢复根节点类型错误的 installation.yaml，保留导出接口及部署回归。"
+          "commit": "6b80eb29e8c1ad6ce19e3a41fa74507db597fdad",
+          "scope": "统一公共编译选项，原样保留。"
+        },
+        {
+          "commit": "dd705412a584c746d17a498f0aa746961457399b",
+          "scope": "阻止 LevelDB 的 -Werror 传播到消费者，原样保留。"
+        },
+        {
+          "commit": "a104ec6cafdb61a19f0e79707741733a0963c431",
+          "pull_request": 1268,
+          "scope": "把 DictEntryIterator 单项迭代降为 O(log n) 并保留新增回归。"
         }
       ],
       "rewriter_pr_head": "8530499b19f2944776ba1d6988fc70712ddeacf2",
       "rewriter_pr_merged": false,
       "rewriter_identical_files_verified": 12,
       "upstream_content_delta_preserved": true,
-      "downstream_commits_before": 13,
-      "downstream_commits_after": 10,
+      "downstream_commits_before": 12,
+      "downstream_commits_after": 11,
       "groups": [
         {
           "scope": "disambiguation",
@@ -148,7 +170,7 @@
           "original_commits": [
             "2aafeae1560e1e7cb30cbdb8146ce6f13bd0074c"
           ],
-          "decision": "保留重复 QuerySpelling 缓存；上游新改动降低编译内存，未替代运行时查询缓存。"
+          "decision": "保留重复 QuerySpelling 缓存；#1268 优化词典迭代器，未替代运行时查询缓存。"
         },
         {
           "scope": "mapped-file-remap",
@@ -206,17 +228,21 @@
             "456fc2f3f69137d9246512b8c07245734526ba24",
             "30511eed172a8a8ee08b8532fe097febcd75e514"
           ],
-          "decision": "合并固定四 ABI SDK、既有依赖升级与 Windows 开发入口；本轮不再前移插件或依赖版本。"
+          "decision": "保留固定四 ABI SDK、既有依赖升级与 Windows 开发入口；本轮不再前移插件或依赖版本。"
+        },
+        {
+          "scope": "restore-scratch-userdb",
+          "original_commits": [
+            "483ffbca5fdfa8a13698d28085e3154d48e435b3",
+            "d7f2720476566ed557ab3975b758d85b9c6f0f0e"
+          ],
+          "decision": "官方 PR #1247 仍未合入，保留精确排除 .temp 的行为；将枚举修复与临时库预清理、打开前清理守卫、失败传播、诊断和 Windows 内部测试链接合并为一个提交。"
         }
       ],
       "related_open_prs_not_adopted": [
         {
           "number": 1200,
           "reason": "仅面向 glibc 的内存归还，不替代编译对象生命周期或 Android bionic 策略。"
-        },
-        {
-          "number": 1247,
-          "reason": "临时词库发现策略，与现有事务及查询缓存不同，尚未合入上游。"
         },
         {
           "number": 1251,
@@ -228,7 +254,7 @@
         },
         {
           "number": 1260,
-          "reason": "打开失败后的词库修复不等同于学习事务/重映射修复，不作为等价补丁替换。"
+          "reason": "普通词典损坏后的打开修复不等同于恢复临时库的隔离、清理与失败传播，不作为等价补丁替换。"
         }
       ]
     }
