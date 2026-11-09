@@ -11,6 +11,7 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/scope_exit.hpp>
 #include <rime/common.h>
+#include <rime/context.h>
 #include <rime/language.h>
 #include <rime/schema.h>
 #include <rime/service.h>
@@ -187,7 +188,11 @@ UserDictionary::UserDictionary(const string& name, an<Db> db)
       pending_(cache_state_->pending) {}
 
 UserDictionary::~UserDictionary() {
-  if (loaded()) {
+  if (cache_state_->transaction_context) {
+    cache_state_->transaction_participants.erase(this);
+    if (loaded() && cache_state_->transaction_participants.empty())
+      CommitPendingTransaction();
+  } else if (loaded()) {
     CommitPendingTransaction();
   }
 }
@@ -802,7 +807,6 @@ bool UserDictionary::UpdateEntry(const DictEntry& entry,
   UserDbValue v;
   TickCount previous_tick = tick_;
   bool existed = db_->Fetch(key, &value);
-#if RIME_USER_DICT_CACHE_ENABLED
   auto pending = pending_.find(key);
   if (pending != pending_.end()) {
     const auto& p = pending->second;
@@ -810,9 +814,7 @@ bool UserDictionary::UpdateEntry(const DictEntry& entry,
     v.commits = p.commits;
     v.tick = p.tick;
     existed = true;
-  } else
-#endif
-      if (existed) {
+  } else if (existed) {
     v.Unpack(value);
   }
   if (existed) {
@@ -881,6 +883,18 @@ bool UserDictionary::UpdateEntry(const DictEntry& entry,
     BuildCache();
   else if (cache_built_)
     cache_built_tick_ = tick_;
+#else
+  // A write batch does not expose its queued values through Db::Fetch().
+  // Preserve read-your-writes even without the optional lookup cache, so
+  // multiple learners updating the same key do not overwrite each other.
+  auto transactional = As<Transactional>(db_);
+  if (transactional && transactional->in_transaction()) {
+    PendingUpdate update{};
+    update.dee = v.dee;
+    update.commits = v.commits;
+    update.tick = v.tick;
+    pending_[key] = std::move(update);
+  }
 #endif
   return true;
 }
@@ -925,8 +939,46 @@ bool UserDictionary::NewTransaction() {
   if (!db)
     return false;
   CommitPendingTransaction();
+  cache_state_->transaction_context = nullptr;
+  cache_state_->transaction_commit_id = 0;
+  cache_state_->transaction_participants.clear();
   transaction_time_ = time(NULL);
   return db->BeginTransaction();
+}
+
+bool UserDictionary::NewTransactionForCommit(const Context& context) {
+  auto db = As<Transactional>(db_);
+  if (!db)
+    return false;
+  if (context.commit_id() && db->in_transaction() &&
+      cache_state_->transaction_context == &context &&
+      cache_state_->transaction_commit_id == context.commit_id()) {
+    cache_state_->transaction_participants.insert(this);
+    return true;
+  }
+  if (!NewTransaction())
+    return false;
+  cache_state_->transaction_context = &context;
+  cache_state_->transaction_commit_id = context.commit_id();
+  cache_state_->transaction_participants.insert(this);
+  return true;
+}
+
+bool UserDictionary::RevertRecentTransactionForContext(const Context& context) {
+  if (cache_state_->transaction_context &&
+      cache_state_->transaction_context != &context) {
+    return false;
+  }
+  return RevertRecentTransaction();
+}
+
+bool UserDictionary::CommitPendingTransactionForContext(
+    const Context& context) {
+  if (cache_state_->transaction_context &&
+      cache_state_->transaction_context != &context) {
+    return false;
+  }
+  return CommitPendingTransaction();
 }
 
 bool UserDictionary::RevertRecentTransaction() {
@@ -937,6 +989,9 @@ bool UserDictionary::RevertRecentTransaction() {
     return false;
   if (!db->AbortTransaction())
     return false;
+  cache_state_->transaction_context = nullptr;
+  cache_state_->transaction_commit_id = 0;
+  cache_state_->transaction_participants.clear();
   // DB was rolled back; pending_ and cache_ are now inconsistent
   pending_.clear();
 #if RIME_USER_DICT_CACHE_ENABLED
@@ -950,6 +1005,14 @@ bool UserDictionary::CommitPendingTransaction() {
   auto db = As<Transactional>(db_);
   if (db && db->in_transaction()) {
     bool committed = db->CommitTransaction();
+    if (!db->in_transaction()) {
+      cache_state_->transaction_context = nullptr;
+      cache_state_->transaction_commit_id = 0;
+      cache_state_->transaction_participants.clear();
+#if !RIME_USER_DICT_CACHE_ENABLED
+      pending_.clear();
+#endif
+    }
     if (!committed && !db->in_transaction()) {
       pending_.clear();
       cache_built_ = false;
