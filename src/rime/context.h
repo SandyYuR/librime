@@ -7,6 +7,7 @@
 #ifndef RIME_CONTEXT_H_
 #define RIME_CONTEXT_H_
 
+#include <cstdint>
 #include <rime/common.h>
 #include <rime/commit_history.h>
 #include <rime/composition.h>
@@ -29,6 +30,9 @@ class RIME_DLL Context {
   ~Context() = default;
 
   bool Commit();
+  // Identity of the currently dispatched commit notification. Zero outside
+  // this context's Commit() notification.
+  uint64_t commit_id() const;
   string GetCommitText() const;
   string GetScriptText() const;
   Preedit GetPreedit() const;
