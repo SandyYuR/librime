@@ -26,6 +26,24 @@ python3 downstream/android/build.py --abi arm64-v8a --work build/android
 
 SDK 只包含 Direct Rime 实际使用的七个静态库、头文件、OpenCC 数据、许可证和来源清单。每个 ABI 的 `source-manifest.json` 记录本仓库源码/官方基线、工具链、依赖及插件和补丁摘要。SDK 顶层清单再记录全部文件摘要。
 
+## 外置引擎（.so 与提供方 APK）
+
+除 SDK 外，本仓库还按输入法的外置引擎协议产出可导入的动态库和提供方 APK。工作流 `.github/workflows/android-engine.yml` 在推送 `zhongzhou`、`build/android-engine-*` 或改动 `src/`、`include/`、`plugins/`、`downstream/android/` 等路径时，用固定 NDK 与 CMake 编译 `arm64-v8a`，产出两个 artifact：`librime-arm64-so-<提交>` 与 `librime-arm64-apk-<提交>`。
+
+```sh
+python3 downstream/android/build.py --abi arm64-v8a --work build/android --jobs 2
+python3 downstream/android/package_engine.py build/android/product \
+  --commit "$GITHUB_SHA" --abi arm64-v8a --output dist/android-engine/so
+python3 downstream/android/package_plugin_apk.py \
+  --engine dist/android-engine/so/librime-<提交前8位>-arm64-v8a.so \
+  --engine-manifest dist/android-engine/so/engine-manifest.json \
+  --output dist/android-engine/apk --channel test
+```
+
+打包前校验：ELF 为 `ET_DYN`、LOAD 段按 16 KiB 页对齐、无可写可执行段、`GNU_STACK` 不可执行；`NEEDED` 只允许 `libandroid.so`、`libc.so`、`libdl.so`、`liblog.so`、`libm.so`、`libz.so`；禁止 RPATH/RUNPATH/TEXTREL；SONAME 固定 `librime.so`；导出符号只保留 `rime_get_api`。APK 包名 `org.rime.plugin.sandyyur.librime`，通过 `org.rime.plugin.MANIFEST` 被发现，meta-data 声明 `API_VERSION`、`RIME_API_ABI`、`SONAME`、`PLUGIN_ID`、`LIBRIME_VERSION` 与 `CHANNEL`。`package_plugin_apk.py` 需要 `ANDROID_SDK_ROOT`（build-tools 36.1.0、platforms/android-36）以及 `KEYSTORE_FILE`、`KEYSTORE_PASSWORD`、`KEY_ALIAS`、`KEY_PASSWORD`。
+
+签名：仅 `zhongzhou` 分支且仓库配置了 `ANDROID_ENGINE_KEYSTORE_BASE64`、`ANDROID_ENGINE_KEYSTORE_PASSWORD`、`ANDROID_ENGINE_KEY_ALIAS`、`ANDROID_ENGINE_KEY_PASSWORD` 时使用发布密钥（`channel=release`）；其余情况每次生成临时 debug 密钥（`channel=test`）。外置引擎流程只上传 artifact，不创建 Release 或标签，与 `android-sdk.yml` 的 SDK 发布互不影响；已发布的 SDK 标签和产物仍不覆盖。
+
 ## Windows 本地开发
 
 Windows 同样使用固定 NDK 和 CMake。配置 `RIME_HOST_CC` / `RIME_HOST_CXX` 为宿主 MSVC，`RIME_HOST_RC` / `RIME_HOST_MT` 为 Windows SDK 工具，并设置相应 INCLUDE/LIB；宿主只负责 OpenCC 数据工具，Android 库由 NDK Clang 交叉编译。

@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tarfile
@@ -39,6 +40,14 @@ def sha256(path):
 def source_lock_digest():
     # Git's canonical text bytes are LF even on a CRLF Windows checkout.
     return hashlib.sha256(LOCK.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
+def rime_version(source):
+    match = re.search(r"^set\(rime_version\s+([^\s)]+)\s*\)$",
+                      (Path(source) / "CMakeLists.txt").read_text(), re.MULTILINE)
+    if not match or not re.fullmatch(r"[0-9]+(?:\.[0-9]+){2}(?:[-+][0-9A-Za-z.-]+)?", match.group(1)):
+        raise ValueError("Could not read a safe rime_version from CMakeLists.txt")
+    return match.group(1)
 
 
 def apply_locked_patch(target, path, expected):
@@ -267,7 +276,8 @@ def build(args):
     downstream = json.loads((ROOT / "downstream/manifest.json").read_text())
     manifest = {
         "schema_version": 2, "librime_repository": downstream["repository"],
-        "librime_commit": commit, "source_tree": source_tree,
+        "librime_commit": commit, "librime_version": rime_version(core),
+        "source_tree": source_tree,
         "upstream_commit": downstream["upstream_commit"], "abi": args.abi,
         "ndk": lock["ndk"], "cmake": lock["cmake"], "platform": lock["platform"],
         "sources_lock_sha256": source_lock_digest(), "sources": lock["sources"],
