@@ -324,6 +324,15 @@
           "decision": "本提交登记 #1274 整理后的提交与合并清单；若并入 #1274 提交会形成自引用，保持独立。"
         }
       ]
+    },
+    "syllable_tab_review": {
+      "date": "2026-11-16",
+      "original_commit": "a586daa5e86a7dadf287187606f76983a494c1ae",
+      "source_head_before_rewrite": "ae914836746a0427dc18124273e1d4a9064df108",
+      "decision": "重写音节栏提交并移到下游分支末尾；保留原排序，按完整 algebra 顺序重放原始带调拼写，跟踪 derive/fuzz 分支的音节来源并核对最终图边。普通 xform 不建立模糊关系，后续删除或不可达的派生不保留；九键重码不抹掉真实模糊关系。",
+      "regression_suite": "ScriptTranslatorTab",
+      "regression_cases": 18,
+      "fixture_policy": "原六项回归继续使用原词典；新增十二项使用独立词典，覆盖前后置变换、derive/fuzz 重码、带调、删除、分隔符、canonicalizer、completion 与 n/en 精确筛选。"
     }
   }
 }

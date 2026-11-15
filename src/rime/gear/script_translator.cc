@@ -20,6 +20,8 @@
 #include <rime/language.h>
 #include <rime/schema.h>
 #include <rime/translation.h>
+#include <rime/algo/algebra.h>
+#include <rime/algo/calculus.h>
 #include <rime/algo/syllabifier.h>
 #include <rime/dict/corrector.h>
 #include <rime/dict/dictionary.h>
@@ -75,6 +77,153 @@ static bool syllabify_dfs(SyllabifyTask* task,
 
 }  // anonymous namespace
 
+// Replay the deployed algebra while retaining the labels reached by a fuzzy
+// branch. Final keys can collide (e.g. qi/pi -> 74), so a set of final keys
+// alone cannot establish which syllable label a branch actually derives.
+class FuzzySpellingProjection : public Projection {
+ public:
+  bool Load(an<ConfigList> rules) {
+    fuzzy_rules_.clear();
+    cache_.clear();
+    if (!Projection::Load(rules))
+      return false;
+    bool has_fuzzy_rule = false;
+    for (size_t i = 0; i < rules->size(); ++i) {
+      const string& formula = rules->GetValueAt(i)->str();
+      const size_t separator =
+          formula.find_first_not_of("abcdefghijklmnopqrstuvwxyz");
+      const string operation = formula.substr(0, separator);
+      const bool fuzzy = operation == "derive" || operation == "fuzz";
+      fuzzy_rules_.push_back(fuzzy);
+      has_fuzzy_rule |= fuzzy;
+    }
+    return has_fuzzy_rule;
+  }
+
+  bool Matches(const string& syllable,
+               const string& label,
+               const set<int>& matched_spellings,
+               Prism& prism) {
+    auto cached = cache_.find(syllable);
+    if (cached == cache_.end()) {
+      Paths paths;
+      paths[syllable];
+      for (size_t i = 0; i < calculation_.size(); ++i) {
+        auto& calculation = calculation_[i];
+        Paths next;
+        for (const auto& [key, labels] : paths) {
+          Spelling spelling(key);
+          bool applied;
+          try {
+            applied = calculation->Apply(&spelling);
+          } catch (const std::runtime_error& error) {
+            LOG(ERROR) << "Error applying tab spelling algebra: "
+                       << error.what();
+            return false;
+          }
+          if (!applied || !calculation->deletion())
+            Merge(&next, key, labels);
+          if (applied && calculation->addition() && !spelling.str.empty()) {
+            auto derived_labels = labels;
+            if (fuzzy_rules_[i] || !labels.empty())
+              derived_labels.insert(StripTones(spelling.str));
+            Merge(&next, spelling.str, derived_labels);
+          }
+        }
+        paths.swap(next);
+      }
+      cached = cache_.emplace(syllable, std::move(paths)).first;
+    }
+    for (const auto& [key, labels] : cached->second) {
+      int spelling_id;
+      if (labels.count(label) && prism.GetValue(key, &spelling_id) &&
+          matched_spellings.count(spelling_id))
+        return true;
+    }
+    return false;
+  }
+
+ private:
+  using Paths = map<string, set<string>>;
+
+  static void Merge(Paths* paths,
+                    const string& key,
+                    const set<string>& labels) {
+    auto& target = (*paths)[key];
+    target.insert(labels.begin(), labels.end());
+  }
+
+  vector<bool> fuzzy_rules_;
+  map<string, Paths> cache_;
+};
+
+// Use the same prism searches as the graph builder when identifying the keys
+// for a selected edge, including delimiters, canonicalization and completion.
+class TabSyllabifier : public Syllabifier {
+ public:
+  using Syllabifier::Syllabifier;
+
+  set<int> MatchSpellings(const string& input,
+                          size_t start,
+                          size_t end,
+                          Prism& prism,
+                          bool completion) {
+    set<int> result;
+    vector<Prism::Match> matches;
+    if (completion) {
+      if (enable_completion_ && end == input.length()) {
+        prism.ExpandSearch(input.substr(start), &matches, 512);
+        for (const auto& match : matches) {
+          if (match.length >= end - start)
+            result.insert(match.value);
+        }
+      }
+      return result;
+    }
+    size_t begin = start;
+    while (begin < input.length() &&
+           delimiters_.find(input[begin]) != string::npos)
+      ++begin;
+    const string remaining = input.substr(begin);
+    if (canonicalizer_) {
+      const size_t limit =
+          (std::min)(remaining.length(), prism.max_key_length());
+      for (size_t length = 1; length <= limit; ++length) {
+        string key = remaining.substr(0, length);
+        canonicalizer_->Apply(&key);
+        int value;
+        if (prism.GetValue(key, &value))
+          matches.push_back({value, length});
+      }
+    } else {
+      prism.CommonPrefixSearch(remaining, &matches);
+    }
+    if (corrector_) {
+      corrector::Corrections corrections;
+      corrector_->ToleranceSearch(prism, remaining, &corrections, 5);
+      for (const auto& [value, correction] : corrections) {
+        for (auto accessor = prism.QuerySpelling(value); !accessor.exhausted();
+             accessor.Next()) {
+          const auto properties = accessor.properties();
+          if (properties.type == kNormalSpelling && !properties.is_correction) {
+            matches.push_back({value, correction.length});
+            break;
+          }
+        }
+      }
+    }
+    for (const auto& match : matches) {
+      size_t matched_end = begin + match.length;
+      while (matched_end < input.length() &&
+             delimiters_.find(input[matched_end]) != string::npos)
+        ++matched_end;
+      if (match.length && matched_end == end)
+        result.insert(match.value);
+    }
+    return result;
+  }
+};
+
 class ScriptSyllabifier : public PhraseSyllabifier {
  public:
   ScriptSyllabifier(ScriptTranslator* translator,
@@ -107,7 +256,7 @@ class ScriptSyllabifier : public PhraseSyllabifier {
   ScriptTranslator* translator_;
   string input_;
   size_t start_;
-  Syllabifier syllabifier_;
+  TabSyllabifier syllabifier_;
   SyllableGraph syllable_graph_;
 };
 
@@ -207,6 +356,13 @@ ScriptTranslator::ScriptTranslator(const Ticket& ticket)
       if (canonicalizer->Load(rules)) {
         canonicalizer_ = std::move(canonicalizer);
       }
+    }
+    // Reuse the complete deployed algebra, including transformations before
+    // derive/fuzz and removal of derived branches by subsequent rules.
+    if (an<ConfigList> algebra = config->GetList("speller/algebra")) {
+      auto projection = New<FuzzySpellingProjection>();
+      if (projection->Load(algebra))
+        fuzzy_projection_ = std::move(projection);
     }
   }
   if (enable_correction_) {
@@ -458,6 +614,7 @@ void ScriptTranslator::CollectSyllableTabs(size_t start_pos,
   char first_input_char = input[start_pos];
   bool first_char_has_xlit = xlit_reverse.count(first_input_char) > 0;
 
+  const size_t first_syllable_tab = tabs->size();
   map<string, size_t> seen;
   bool has_single_span = false;
   auto it = graph.edges.find(start_pos);
@@ -488,6 +645,18 @@ void ScriptTranslator::CollectSyllableTabs(size_t start_pos,
       }
     }
   }
+
+  // Longest syllables first (e.g. "sheng" before "shen" before "she"), and
+  // alphabetical within the same span. The internal syllable-id order is not
+  // alphabetical (e.g. "fo" can precede "en"), which looks random in the bar.
+  // Only the syllable tabs collected above are reordered; tabs from other
+  // translators and the xlit/raw-key tabs appended below keep their positions.
+  std::stable_sort(tabs->begin() + first_syllable_tab, tabs->end(),
+                   [](const InputTabEntry& a, const InputTabEntry& b) {
+                     if (a.span != b.span)
+                       return a.span > b.span;
+                     return a.label < b.label;
+                   });
 
   // Generate xlit partial-match tabs for 简拼 disambiguation
   if ((!has_single_span || first_char_has_xlit) && first_char_has_xlit) {
@@ -539,6 +708,21 @@ static string DecodeSyllableId(Dictionary* dict, SyllableId id) {
   return "";
 }
 
+// Returns true when the schema's spelling algebra derives `label` from
+// `syllable`, that is, when the prism also indexes `syllable` under the
+// spelling `label`. Only derive/fuzz rules establish fuzzy provenance; the
+// other algebra rules propagate or remove branches in deployment order.
+// A schema without fuzzy rules keeps the exact-match behavior.
+static bool FuzzySpellingMatches(FuzzySpellingProjection* projection,
+                                 const string& syllable,
+                                 const string& label,
+                                 const set<int>& matched_spellings,
+                                 Prism& prism) {
+  if (!projection || syllable.empty() || label.empty())
+    return false;
+  return projection->Matches(syllable, label, matched_spellings, prism);
+}
+
 void ScriptSyllabifier::ApplyTabConstraints(
     Dictionary* dict,
     const vector<Context::TabConstraint>& constraints) {
@@ -554,8 +738,7 @@ void ScriptSyllabifier::ApplyTabConstraints(
     size_t graph_pos = constraint.position - start_;
     DLOG(INFO) << "  constraint: pos=" << constraint.position
                << " graph_pos=" << graph_pos << " label=[" << constraint.label
-               << "]"
-               << " span=" << constraint.span;
+               << "]" << " span=" << constraint.span;
     if (graph_pos >= syllable_graph_.input_length) {
       DLOG(INFO) << "  SKIP: graph_pos >= input_length";
       continue;
@@ -569,6 +752,13 @@ void ScriptSyllabifier::ApplyTabConstraints(
 
     string label_base = StripTones(constraint.label);
     bool is_single_char = (constraint.span == 1);
+
+    // A full-syllable tab may stand for a syllable whose canonical spelling
+    // differs from the label because the schema's fuzzy-spelling algebra also
+    // spells it as the label (for example, tab "shen" is how "sheng" is typed
+    // under en/eng fuzzy spelling).  Such a syllable is already indexed under
+    // the selected spelling, so keep it instead of dropping it as a mismatch.
+    auto* fuzzy = translator_ ? translator_->fuzzy_projection() : nullptr;
 
     auto& end_map = edge_it->second;
     DLOG(INFO) << "  label_base=[" << label_base
@@ -593,6 +783,19 @@ void ScriptSyllabifier::ApplyTabConstraints(
         continue;
       }
 
+      set<int> exact_spellings, completion_spellings;
+      if (!is_single_char && fuzzy) {
+        exact_spellings = syllabifier_.MatchSpellings(
+            input_, graph_pos, end_pos, *dict->prism(), false);
+        if (std::any_of(spelling_map.begin(), spelling_map.end(),
+                        [](const auto& entry) {
+                          return entry.second.type == kCompletion;
+                        })) {
+          completion_spellings = syllabifier_.MatchSpellings(
+              input_, graph_pos, end_pos, *dict->prism(), true);
+        }
+      }
+
       // Filter syllables in this edge
       for (auto syl_it = spelling_map.begin(); syl_it != spelling_map.end();) {
         string decoded = DecodeSyllableId(dict, syl_it->first);
@@ -606,15 +809,20 @@ void ScriptSyllabifier::ApplyTabConstraints(
             keep = true;
           }
         } else {
-          // Full syllable: tone-insensitive match
-          if (decoded_base == label_base) {
+          // Full syllable: tone-insensitive match, plus syllables that the
+          // schema's fuzzy-spelling rules also spell as the selected label.
+          if (decoded_base == label_base ||
+              FuzzySpellingMatches(fuzzy, decoded, label_base,
+                                   syl_it->second.type == kCompletion
+                                       ? completion_spellings
+                                       : exact_spellings,
+                                   *dict->prism())) {
             keep = true;
           }
         }
 
         DLOG(INFO) << "      syl_id=" << syl_it->first << " decoded=["
-                   << decoded << "]"
-                   << " base=[" << decoded_base << "]"
+                   << decoded << "]" << " base=[" << decoded_base << "]"
                    << " keep=" << keep;
 
         if (keep)
