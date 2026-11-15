@@ -3,7 +3,7 @@
   "repository": "https://github.com/SandyYuR/librime",
   "maintenance_branch": "zhongzhou",
   "upstream_repository": "https://github.com/rime/librime",
-  "upstream_commit": "1b3417d2b6a11b5e50e0e1fa9dc396056aa11dce",
+  "upstream_commit": "9777cb2f25ff15116d6720141e7f0e539ac68063",
   "migration": {
     "prebuilder_commit": "bcfb896fd531caad2e95b8a580b45fb58956f171",
     "core_tree": "e90ec6076ac7177853dc8fac39b2a35b80590ceb",
@@ -56,5 +56,61 @@
     ],
     "equivalence": "All tracked files match the previous ordered-patch source snapshot byte for byte.",
     "files_compared": 382
+  },
+  "upstream_prs": [
+    {
+      "number": 1203,
+      "url": "https://github.com/rime/librime/pull/1203",
+      "integration": "upstream-master",
+      "commit": "e930f57b5cc2eeac91aed3b6c7fe62e96f1fc8bc"
+    },
+    {
+      "number": 1196,
+      "url": "https://github.com/rime/librime/pull/1196",
+      "integration": "upstream-master",
+      "commit": "9777cb2f25ff15116d6720141e7f0e539ac68063",
+      "merged_pr_head": "29b47d8866d68776c6dff02ceb30c9e065b446f3"
+    },
+    {
+      "number": 1232,
+      "url": "https://github.com/rime/librime/pull/1232",
+      "integration": "equivalent-committed-source",
+      "commit": "8530499b19f2944776ba1d6988fc70712ddeacf2",
+      "identical_files": [
+        "src/rime/dict/rewrite_internal.h",
+        "src/rime/dict/rewrite_pack.cc",
+        "src/rime/dict/rewrite_pack.h",
+        "src/rime/dict/rewrite_store.cc",
+        "src/rime/dict/rewrite_store.h",
+        "src/rime/gear/gears_module.cc",
+        "src/rime/gear/rewriter.cc",
+        "src/rime/gear/rewriter.h",
+        "src/rime/lever/rewrite_compiler.cc",
+        "src/rime/lever/rewrite_compiler.h",
+        "src/rime/lever/rewrite_preset.cc",
+        "src/rime/lever/rewrite_preset.h"
+      ],
+      "adapted_files": [
+        "src/rime/lever/deployment_tasks.cc"
+      ]
+    }
+  ],
+  "maintenance": {
+    "history_strategy": "rebase-onto-upstream",
+    "upstream_pr_integration": "one-commit-per-pr",
+    "superseded_patches": [
+      {
+        "commit": "5bdfe1584a760b230bffd0b5206a329e3c046df0",
+        "upstream_pr": 1203,
+        "reason": "Replaced by the official compile graph and bounded scheduler in the upstream base."
+      },
+      {
+        "commit": "d4ae2ae1694d9026da682e84c8398b69c50afae4",
+        "rebased_commit": "1278e010785ddcc32f42c37c8f9ead0091c5dd4b",
+        "upstream_pr": 1196,
+        "upstream_commit": "9777cb2f25ff15116d6720141e7f0e539ac68063",
+        "reason": "The cache implementation and regression cases are now included in the official upstream base. Only unique benchmark tooling is retained downstream."
+      }
+    ]
   }
 }
