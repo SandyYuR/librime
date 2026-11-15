@@ -119,6 +119,15 @@
       "url": "https://github.com/rime/librime/pull/1260",
       "integration": "upstream-master",
       "commit": "bb56876890ba60f446fa2640c244b1794b965eda"
+    },
+    {
+      "number": 1274,
+      "url": "https://github.com/rime/librime/pull/1274",
+      "integration": "downstream-adapted",
+      "commit": "e352de169eb0c410705711e321960505848c34d3",
+      "pr_head": "e8401caa7a0df06a2b5c6723724b2b83f79f807e",
+      "merged": false,
+      "scope": "紧凑词条存储与两段式反向词典构建降低部署内存；下游为新增路径补齐映射重映射保护。"
     }
   ],
   "maintenance": {
@@ -172,7 +181,7 @@
       "rewriter_identical_files_verified": 12,
       "upstream_content_delta_preserved": true,
       "downstream_commits_before": 12,
-      "downstream_commits_after": 12,
+      "downstream_commits_after": 14,
       "groups": [
         {
           "scope": "disambiguation",
@@ -259,6 +268,11 @@
           "scope": "android-spdlog",
           "original_commits": [],
           "decision": "上游静态链接内置 spdlog 且缺少 deps/spdlog 时配置失败；Android 构建从依赖锁取同一份源码，导出源码副本时补入 deps/spdlog，并安装 libspdlog.a 供 SDK 消费，glog 补丁与主机依赖同步移除。"
+        },
+        {
+          "scope": "compact-dictionary-pr1274",
+          "original_commits": [],
+          "decision": "PR #1274 仍未合入；按 head e8401caa 合入紧凑词条与两段式反向词典构建，并为新增路径补齐分配后重取 metadata、按偏移 Rebase 的重映射保护。"
         }
       ],
       "related_open_prs_not_adopted": [
