@@ -5,7 +5,9 @@
 // 2011-05-08 GONG Chen <chen.sst@gmail.com>
 //
 #include <algorithm>
+#include <atomic>
 #include <utility>
+#include <boost/scope_exit.hpp>
 #include <rime/candidate.h>
 #include <rime/context.h>
 #include <rime/menu.h>
@@ -15,9 +17,35 @@ namespace rime {
 
 const string kSelectedBeforeEditing = "selected_before_editing";
 
+namespace {
+
+std::atomic<uint64_t> next_commit_id{0};
+thread_local const Context* active_commit_context = nullptr;
+thread_local uint64_t active_commit_id = 0;
+
+}  // namespace
+
+uint64_t Context::commit_id() const {
+  return active_commit_context == this ? active_commit_id : 0;
+}
+
 bool Context::Commit() {
   if (!IsComposing())
     return false;
+  // Re-entering this context's commit dispatch can finish a transaction that
+  // still belongs to the outer notification, leaving only part of it undoable.
+  if (active_commit_context == this) {
+    LOG(WARNING) << "ignoring a nested commit notification";
+    return false;
+  }
+  const auto previous_commit_context = active_commit_context;
+  const auto previous_commit_id = active_commit_id;
+  active_commit_context = this;
+  active_commit_id = ++next_commit_id;
+  BOOST_SCOPE_EXIT_ALL(previous_commit_context, previous_commit_id) {
+    active_commit_context = previous_commit_context;
+    active_commit_id = previous_commit_id;
+  };
   // notify the engine and interesting components
   commit_notifier_(this);
   // start over
