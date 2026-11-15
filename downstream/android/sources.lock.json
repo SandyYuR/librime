@@ -10,17 +10,13 @@
     "x86_64"
   ],
   "sources": {
-    "glog": {
-      "repository": "https://github.com/google/glog",
-      "commit": "7b134a5c82c0c0b5698bb6bf7a835b230c5638e4",
-      "url": "https://codeload.github.com/google/glog/tar.gz/7b134a5c82c0c0b5698bb6bf7a835b230c5638e4",
-      "patches": [
-        {
-          "file": "glog.patch",
-          "sha256": "c009964f057efd85e466a6072e019014ed34a05fe8e1f433c9a740de0c42e932"
-        }
-      ],
-      "sha256": "9c48c7c631be5af3502a19d06ebdb5c2f67d8d0bf216f896848089c1792e6193"
+    "spdlog": {
+      "repository": "https://github.com/gabime/spdlog",
+      "commit": "79524ddd08a4ec981b7fea76afd08ee05f83755d",
+      "url": "https://codeload.github.com/gabime/spdlog/tar.gz/79524ddd08a4ec981b7fea76afd08ee05f83755d",
+      "patches": [],
+      "sha256": "c6dee844e35a54cc80e3ab76aae2310763e0b49c7397549dfa4d4657d9737138",
+      "version": "1.17.0"
     },
     "leveldb": {
       "repository": "https://github.com/google/leveldb",

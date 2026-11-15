@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 LOCK = HERE / "sources.lock.json"
 LIBRARIES = {
-    "librime": "librime.a", "glog": "libglog.a", "leveldb": "libleveldb.a",
+    "librime": "librime.a", "spdlog": "libspdlog.a", "leveldb": "libleveldb.a",
     "lua": "liblua_static.a", "marisa": "libmarisa.a", "opencc": "libopencc.a",
     "yaml-cpp": "libyaml-cpp.a",
 }
@@ -206,6 +206,18 @@ def build(args):
                     shutil.copytree(prepared[name], staged / "plugins" / directory)
                 else:
                     (staged / "plugins" / directory).symlink_to(prepared[name], target_is_directory=True)
+            # Upstream links the pinned spdlog statically and refuses to configure
+            # without its source, while git archive never contains submodules.
+            spdlog = staged / "deps" / "spdlog"
+            spdlog.parent.mkdir(parents=True, exist_ok=True)
+            # git archive materializes gitlinks such as deps/spdlog as empty
+            # directories, so the locked source replaces that placeholder.
+            if spdlog.is_dir() and not spdlog.is_symlink():
+                shutil.rmtree(spdlog)
+            if os.name == "nt" or args.development:
+                shutil.copytree(prepared["spdlog"], spdlog)
+            else:
+                spdlog.symlink_to(prepared["spdlog"], target_is_directory=True)
             if args.development:
                 sync_source_tree(staged, core)
             else:
@@ -228,14 +240,14 @@ def build(args):
         f"-DCMAKE_CXX_FLAGS=-ffile-prefix-map={work.as_posix()}=. -DBOOST_ALL_NO_EMBEDDED_GDB_SCRIPTS",
     ]
     flags = {
-        "glog": ["-DWITH_GFLAGS=OFF", "-DWITH_UNWIND=OFF", "-DBUILD_TESTING=OFF"],
+        "spdlog": ["-DSPDLOG_BUILD_SHARED=OFF", "-DSPDLOG_BUILD_PIC=ON", "-DSPDLOG_BUILD_EXAMPLE=OFF", "-DSPDLOG_BUILD_TESTS=OFF", "-DSPDLOG_INSTALL=ON", "-DSPDLOG_FMT_EXTERNAL=OFF"],
         "yaml-cpp": ["-DYAML_CPP_BUILD_CONTRIB=OFF", "-DYAML_CPP_BUILD_TESTS=OFF", "-DYAML_CPP_BUILD_TOOLS=OFF"],
         "leveldb": ["-DLEVELDB_BUILD_TESTS=OFF", "-DLEVELDB_BUILD_BENCHMARKS=OFF", "-DLEVELDB_INSTALL=ON"],
         "marisa": [],
         "lua": [],
         "opencc": ["-DSHARE_INSTALL_PREFIX=share", "-DINCLUDE_INSTALL_DIR=include", "-DSYSCONF_INSTALL_DIR=etc", "-DLIB_INSTALL_DIR=lib", "-DBUILD_DOCUMENTATION=OFF", "-DBUILD_PYTHON=OFF", "-DBUILD_OPENCC_JIEBA_PLUGIN=OFF", "-DENABLE_GTEST=OFF", "-DENABLE_BENCHMARK=OFF", "-DUSE_SYSTEM_MARISA=ON", f"-DMarisa_DIR={product.as_posix()}/marisa/{args.abi}/lib/cmake/Marisa", "-DUSE_SYSTEM_PYBIND11=OFF", "-DUSE_SYSTEM_RAPIDJSON=OFF", "-DUSE_SYSTEM_TCLAP=OFF"],
     }
-    for name in ("glog", "yaml-cpp", "leveldb", "marisa", "lua", "opencc"):
+    for name in ("spdlog", "yaml-cpp", "leveldb", "marisa", "lua", "opencc"):
         cmake_build(cmake, prepared[name], work / "cmake" / args.abi / name,
                     product / name / args.abi, args.jobs, common + flags[name])
         if name == "opencc":

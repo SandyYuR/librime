@@ -71,7 +71,9 @@ python downstream/android/package.py D:/GitHub/tools/rime-build/windows/product 
 
 依赖不会自动跟随上游分支；`sources.lock.json` 的 URL 和 SHA-256 决定实际使用的源码。升级时同时更新版本或提交、源码 URL、源码摘要，检查本地补丁并更新其摘要。补丁或安装布局改变时一并调整构建配方。每次依赖升级都发布新的 SDK 标签，再由输入法更新 SDK 锁；已发布版本不覆盖。
 
-2026-11-05 更新 Lua 5.4.7 → 5.4.9、Boost 1.90.0 → 1.92.0、OpenCC → 1.4.2，并同步 librime-lua、octagram、LevelDB 的固定上游提交。Lua 使用 lua.org 官方 5.4.9 源码包及最小 CMake 安装配方，保留 32 位 Android API 23 的文件定位兼容补丁；不跨越到 Lua 5.5。OpenCC 的 Android 库与主机生成工具使用同一版本源码。predict 无后续提交；glog 0.7.1、yaml-cpp 0.9.0、Marisa 0.3.1 已是最新正式版，保持原版本。
+2026-11-05 更新 Lua 5.4.7 → 5.4.9、Boost 1.90.0 → 1.92.0、OpenCC → 1.4.2，并同步 librime-lua、octagram、LevelDB 的固定上游提交。Lua 使用 lua.org 官方 5.4.9 源码包及最小 CMake 安装配方，保留 32 位 Android API 23 的文件定位兼容补丁；不跨越到 Lua 5.5。OpenCC 的 Android 库与主机生成工具使用同一版本源码。predict 无后续提交；yaml-cpp 0.9.0、Marisa 0.3.1 已是最新正式版，保持原版本。
+
+2026-11-15 随上游日志迁移用 spdlog 1.17.0（提交 `79524ddd`）替换 glog 0.7.1：上游要求静态链接内置 spdlog，缺少 `deps/spdlog` 时配置直接失败。核心源码由 `git archive` 导出，不包含子模块，因此构建把依赖锁里的 spdlog 源码复制（Windows）或软链（Linux）到隔离源码副本的 `deps/spdlog`，同时按同一份源码单独安装 `libspdlog.a` 供 SDK 消费；两处编译选项一致，链接仍只使用 SDK 内的那一份。glog 补丁随之删除，主机回归改为初始化子模块。
 
 复用构建目录时，Boost 头文件缓存按源码摘要重新生成，避免依赖锁已更新而实际仍编译旧头文件。Android SDK CI 的主机回归使用 Ubuntu 系统依赖，不能替代升级组件在 Android 上的运行验证。
 

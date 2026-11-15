@@ -3,7 +3,7 @@
   "repository": "https://github.com/SandyYuR/librime",
   "maintenance_branch": "zhongzhou",
   "upstream_repository": "https://github.com/rime/librime",
-  "upstream_commit": "a104ec6cafdb61a19f0e79707741733a0963c431",
+  "upstream_commit": "bb56876890ba60f446fa2640c244b1794b965eda",
   "migration": {
     "prebuilder_commit": "bcfb896fd531caad2e95b8a580b45fb58956f171",
     "core_tree": "e90ec6076ac7177853dc8fac39b2a35b80590ceb",
@@ -107,6 +107,18 @@
       "url": "https://github.com/rime/librime/pull/1268",
       "integration": "upstream-master",
       "commit": "a104ec6cafdb61a19f0e79707741733a0963c431"
+    },
+    {
+      "number": 1272,
+      "url": "https://github.com/rime/librime/pull/1272",
+      "integration": "upstream-master",
+      "commit": "c95c0d2390c827bf44e5eb8989704ba723ec0d0c"
+    },
+    {
+      "number": 1260,
+      "url": "https://github.com/rime/librime/pull/1260",
+      "integration": "upstream-master",
+      "commit": "bb56876890ba60f446fa2640c244b1794b965eda"
     }
   ],
   "maintenance": {
@@ -127,27 +139,32 @@
       }
     ],
     "last_upstream_review": {
-      "date": "2026-11-10",
-      "previous_upstream_commit": "2bae6b59b5ebbf2a8af7ffae5b22fbf090f91841",
-      "upstream_commit": "a104ec6cafdb61a19f0e79707741733a0963c431",
-      "previous_downstream_commit": "483ffbca5fdfa8a13698d28085e3154d48e435b3",
+      "date": "2026-11-15",
+      "previous_upstream_commit": "a104ec6cafdb61a19f0e79707741733a0963c431",
+      "upstream_commit": "bb56876890ba60f446fa2640c244b1794b965eda",
+      "previous_downstream_commit": "5a64550e42ac872dd2ecc4f816f4a64f8b0a72e5",
       "upstream_changes": [
         {
-          "commit": "40d51ac58d1c4c2e7eccc81e6b4ccc9616705160",
-          "scope": "补齐配置编译器接口的虚析构，原样保留。"
+          "commit": "c95c0d2390c827bf44e5eb8989704ba723ec0d0c",
+          "pull_request": 1272,
+          "scope": "词典编译改为紧凑条目与并行分组，降低部署峰值内存，原样保留。"
         },
         {
-          "commit": "6b80eb29e8c1ad6ce19e3a41fa74507db597fdad",
-          "scope": "统一公共编译选项，原样保留。"
+          "commit": "e548b08fea9843b0165cccf132ee484b25116900",
+          "scope": "新增固定提交的 deps/spdlog 子模块，原样保留。"
         },
         {
-          "commit": "dd705412a584c746d17a498f0aa746961457399b",
-          "scope": "阻止 LevelDB 的 -Werror 传播到消费者，原样保留。"
+          "commit": "6e23ed28fe56f050e921a914c1b9144dd7a92536",
+          "scope": "日志由 glog 迁移到 spdlog 门面，原样保留；下游同步替换 Android SDK 的日志依赖。"
         },
         {
-          "commit": "a104ec6cafdb61a19f0e79707741733a0963c431",
-          "pull_request": 1268,
-          "scope": "把 DictEntryIterator 单项迭代降为 O(log n) 并保留新增回归。"
+          "commit": "023f7872e26541d786a500791e67f8332f22d090",
+          "scope": "移除 glog 与 gflags 的构建与查找脚本，原样保留。"
+        },
+        {
+          "commit": "bb56876890ba60f446fa2640c244b1794b965eda",
+          "pull_request": 1260,
+          "scope": "用户库打开失败时尝试隔离损坏库并恢复，原样保留；临时库恢复仍按下游事务处理。"
         }
       ],
       "rewriter_pr_head": "8530499b19f2944776ba1d6988fc70712ddeacf2",
@@ -155,7 +172,7 @@
       "rewriter_identical_files_verified": 12,
       "upstream_content_delta_preserved": true,
       "downstream_commits_before": 12,
-      "downstream_commits_after": 11,
+      "downstream_commits_after": 12,
       "groups": [
         {
           "scope": "disambiguation",
@@ -237,24 +254,17 @@
             "d7f2720476566ed557ab3975b758d85b9c6f0f0e"
           ],
           "decision": "官方 PR #1247 仍未合入，保留精确排除 .temp 的行为；将枚举修复与临时库预清理、打开前清理守卫、失败传播、诊断和 Windows 内部测试链接合并为一个提交。"
+        },
+        {
+          "scope": "android-spdlog",
+          "original_commits": [],
+          "decision": "上游静态链接内置 spdlog 且缺少 deps/spdlog 时配置失败；Android 构建从依赖锁取同一份源码，导出源码副本时补入 deps/spdlog，并安装 libspdlog.a 供 SDK 消费，glog 补丁与主机依赖同步移除。"
         }
       ],
       "related_open_prs_not_adopted": [
         {
           "number": 1200,
           "reason": "仅面向 glibc 的内存归还，不替代编译对象生命周期或 Android bionic 策略。"
-        },
-        {
-          "number": 1251,
-          "reason": "日志抽象替换尚未合入，不在本轮核心变基中更换日志依赖。"
-        },
-        {
-          "number": 1254,
-          "reason": "spdlog 迁移提案尚未合入，不变更锁定 SDK 的原生依赖。"
-        },
-        {
-          "number": 1260,
-          "reason": "普通词典损坏后的打开修复不等同于恢复临时库的隔离、清理与失败传播，不作为等价补丁替换。"
         }
       ]
     }
