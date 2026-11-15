@@ -188,4 +188,9 @@ if(WIN32 AND BUILD_SHARED_LIBS AND BUILD_TEST)
     ${rime_gears_deps}
     ${rime_levers_deps}
     ${rime_plugins_deps})
+  if(ENABLE_LOGGING)
+    # logging.cc 直接包含 spdlog 头文件；rime 库只把 spdlog 作为 PRIVATE 依赖，
+    # 因此测试用的对象库需要自己链接它，避免 Windows 下找不到 spdlog/sinks/*.h。
+    target_link_libraries(rime-test-engine PUBLIC spdlog::spdlog)
+  endif()
 endif()
