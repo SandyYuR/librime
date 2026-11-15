@@ -7,7 +7,7 @@ import tarfile
 import tempfile
 import unittest
 
-from build import apply_patch, cmake_build, prepare_boost_headers, prepare_source, sha256
+from build import apply_patch, cmake_build, prepare_boost_headers, prepare_source, rime_version, sha256
 
 
 class PreparedSourceRecoveryTest(unittest.TestCase):
@@ -37,6 +37,22 @@ class PreparedSourceRecoveryTest(unittest.TestCase):
             self.assertFalse((restored / "obsolete.txt").exists())
             self.assertFalse((restored / "dependency-release").exists())
             self.assertTrue((restored / ".android-source").is_file())
+
+
+class RimeVersionTest(unittest.TestCase):
+    def test_version_is_read_from_the_project_file(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "CMakeLists.txt").write_text("set(rime_version 1.17.0)\n", newline="\n")
+            self.assertEqual("1.17.0", rime_version(root))
+
+    def test_unsafe_version_is_rejected(self):
+        for text in ("set(rime_version ${BAD})\n", "project(rime)\n", "set(rime_version 1.17)\n"):
+            with self.subTest(text=text), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                (root / "CMakeLists.txt").write_text(text, newline="\n")
+                with self.assertRaises(ValueError):
+                    rime_version(root)
 
 
 class SourcePatchTest(unittest.TestCase):

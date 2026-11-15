@@ -20,6 +20,7 @@
 #include <rime/language.h>
 #include <rime/schema.h>
 #include <rime/translation.h>
+#include <rime/algo/algebra.h>
 #include <rime/algo/syllabifier.h>
 #include <rime/dict/corrector.h>
 #include <rime/dict/dictionary.h>
@@ -206,6 +207,29 @@ ScriptTranslator::ScriptTranslator(const Ticket& ticket)
       the<Projection> canonicalizer(new Projection());
       if (canonicalizer->Load(rules)) {
         canonicalizer_ = std::move(canonicalizer);
+      }
+    }
+    // Keep only the spelling-algebra rules that derive alternative spellings
+    // (derive/ and fuzz/).  The projection is used to decide whether a
+    // syllable on a tab-constrained edge is reachable from the selected tab
+    // label through the schema's own fuzzy-spelling rules.
+    if (an<ConfigList> algebra = config->GetList("speller/algebra")) {
+      auto fuzzy_rules = New<ConfigList>();
+      for (size_t i = 0; i < algebra->size(); ++i) {
+        an<ConfigValue> rule = algebra->GetValueAt(i);
+        if (!rule)
+          continue;
+        const string& formula = rule->str();
+        if (formula.rfind("derive/", 0) == 0 ||
+            formula.rfind("fuzz/", 0) == 0) {
+          fuzzy_rules->Append(rule);
+        }
+      }
+      if (!fuzzy_rules->empty()) {
+        the<Projection> projection(new Projection());
+        if (projection->Load(fuzzy_rules)) {
+          fuzzy_projection_ = std::move(projection);
+        }
       }
     }
   }
@@ -458,6 +482,7 @@ void ScriptTranslator::CollectSyllableTabs(size_t start_pos,
   char first_input_char = input[start_pos];
   bool first_char_has_xlit = xlit_reverse.count(first_input_char) > 0;
 
+  const size_t first_syllable_tab = tabs->size();
   map<string, size_t> seen;
   bool has_single_span = false;
   auto it = graph.edges.find(start_pos);
@@ -488,6 +513,18 @@ void ScriptTranslator::CollectSyllableTabs(size_t start_pos,
       }
     }
   }
+
+  // Longest syllables first (e.g. "sheng" before "shen" before "she"), and
+  // alphabetical within the same span. The internal syllable-id order is not
+  // alphabetical (e.g. "fo" can precede "en"), which looks random in the bar.
+  // Only the syllable tabs collected above are reordered; tabs from other
+  // translators and the xlit/raw-key tabs appended below keep their positions.
+  std::stable_sort(tabs->begin() + first_syllable_tab, tabs->end(),
+                   [](const InputTabEntry& a, const InputTabEntry& b) {
+                     if (a.span != b.span)
+                       return a.span > b.span;
+                     return a.label < b.label;
+                   });
 
   // Generate xlit partial-match tabs for 简拼 disambiguation
   if ((!has_single_span || first_char_has_xlit) && first_char_has_xlit) {
@@ -539,6 +576,26 @@ static string DecodeSyllableId(Dictionary* dict, SyllableId id) {
   return "";
 }
 
+// Returns true when the schema's spelling algebra derives `label` from
+// `syllable`, that is, when the prism also indexes `syllable` under the
+// spelling `label`.  Only derive/ and fuzz/ rules take part, so a schema
+// without fuzzy spellings leaves every syllable reachable only through its own
+// spelling and tab selection keeps behaving exactly as before.
+static bool FuzzySpellingMatches(Projection* projection,
+                                 const string& syllable,
+                                 const string& label) {
+  if (!projection || syllable.empty() || label.empty())
+    return false;
+  Script script;
+  script.AddSyllable(syllable);
+  projection->Apply(&script);
+  for (const auto& entry : script) {
+    if (StripTones(entry.first) == label)
+      return true;
+  }
+  return false;
+}
+
 void ScriptSyllabifier::ApplyTabConstraints(
     Dictionary* dict,
     const vector<Context::TabConstraint>& constraints) {
@@ -569,6 +626,13 @@ void ScriptSyllabifier::ApplyTabConstraints(
 
     string label_base = StripTones(constraint.label);
     bool is_single_char = (constraint.span == 1);
+
+    // A full-syllable tab may stand for a syllable whose canonical spelling
+    // differs from the label because the schema's fuzzy-spelling algebra also
+    // spells it as the label (for example, tab "shen" is how "sheng" is typed
+    // under en/eng fuzzy spelling).  Such a syllable is already indexed under
+    // the selected spelling, so keep it instead of dropping it as a mismatch.
+    Projection* fuzzy = translator_ ? translator_->fuzzy_projection() : nullptr;
 
     auto& end_map = edge_it->second;
     DLOG(INFO) << "  label_base=[" << label_base
@@ -606,8 +670,10 @@ void ScriptSyllabifier::ApplyTabConstraints(
             keep = true;
           }
         } else {
-          // Full syllable: tone-insensitive match
-          if (decoded_base == label_base) {
+          // Full syllable: tone-insensitive match, plus syllables that the
+          // schema's fuzzy-spelling rules also spell as the selected label.
+          if (decoded_base == label_base ||
+              FuzzySpellingMatches(fuzzy, decoded_base, label_base)) {
             keep = true;
           }
         }
