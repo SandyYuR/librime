@@ -1,6 +1,6 @@
 # 中州鹅 librime 定制源码
 
-本仓库复刻自 rime/librime。默认 master 用于跟踪官方源码；中州鹅使用 zhongzhou 分支的固定提交。
+本仓库复刻自 rime/librime。默认分支为 `zhongzhou`，中州鹅使用该分支的固定提交；`master` 用于跟踪官方源码。
 
 引擎功能以本仓库中的源码提交为唯一维护来源。Android 引擎、插件和依赖由本仓库的 Android SDK CI 从源码构建，Release 保存版本化 SDK；输入法固定 SDK 标签、源码提交与包摘要。prebuilder/prebuilt 仅保留历史重建用途，不参与当前构建。详见 [Android SDK 维护](android/README.zh-CN.md)。
 

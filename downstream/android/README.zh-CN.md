@@ -28,7 +28,9 @@ SDK 只包含 Direct Rime 实际使用的七个静态库、头文件、OpenCC �
 
 ## 外置引擎（.so 与提供方 APK）
 
-除 SDK 外，本仓库还按输入法的外置引擎协议产出可导入的动态库和提供方 APK。工作流 `.github/workflows/android-engine.yml` 在推送 `zhongzhou`、`build/android-engine-*` 或改动 `src/`、`include/`、`plugins/`、`downstream/android/` 等路径时，用固定 NDK 与 CMake 编译 `arm64-v8a`，产出两个 artifact：`librime-arm64-so-<提交>` 与 `librime-arm64-apk-<提交>`。
+除 SDK 外，本仓库还按输入法的外置引擎协议产出可导入的动态库和提供方 APK。工作流 `.github/workflows/android-engine.yml` 在推送 `zhongzhou` 或 `build/android-engine-*`，且改动匹配其 `paths` 列表时自动触发；目标为 `zhongzhou` 的 PR 也需匹配该路径列表。工作流用固定 NDK 与 CMake 编译 `arm64-v8a`，产出两个 artifact：`librime-arm64-so-<提交>` 与 `librime-arm64-apk-<提交>`。
+
+默认分支 `zhongzhou` 中已声明 `workflow_dispatch`，可在 GitHub 网页手动构建：打开 **Actions → Android ARM64 engine → Run workflow**，在 **Branch** 中选择含此工作流及下游构建配方的分支，再点击面板中的 **Run workflow**。手动触发不受 `push` 的分支和路径过滤限制；例如可以选择 `fix/t9-tab-order-fuzzy`。`master` 保留官方源码，缺少此工作流和下游构建配方，不能直接用于该外置引擎构建。
 
 ```sh
 python3 downstream/android/build.py --abi arm64-v8a --work build/android --jobs 2
@@ -74,6 +76,8 @@ python downstream/android/package.py D:/GitHub/tools/rime-build/windows/product 
 2026-11-05 更新 Lua 5.4.7 → 5.4.9、Boost 1.90.0 → 1.92.0、OpenCC → 1.4.2，并同步 librime-lua、octagram、LevelDB 的固定上游提交。Lua 使用 lua.org 官方 5.4.9 源码包及最小 CMake 安装配方，保留 32 位 Android API 23 的文件定位兼容补丁；不跨越到 Lua 5.5。OpenCC 的 Android 库与主机生成工具使用同一版本源码。predict 无后续提交；yaml-cpp 0.9.0、Marisa 0.3.1 已是最新正式版，保持原版本。
 
 2026-11-15 随上游日志迁移用 spdlog 1.17.0（提交 `79524ddd`）替换 glog 0.7.1：上游要求静态链接内置 spdlog，缺少 `deps/spdlog` 时配置直接失败。核心源码由 `git archive` 导出，不包含子模块，因此构建把依赖锁里的 spdlog 源码复制（Windows）或软链（Linux）到隔离源码副本的 `deps/spdlog`，同时按同一份源码单独安装 `libspdlog.a` 供 SDK 消费；两处编译选项一致，链接仍只使用 SDK 内的那一份。glog 补丁随之删除，主机回归改为初始化子模块。
+
+同日按上游 PR #1274（head `e8401caa`，尚未合入）合入紧凑词条存储与两段式反向词典构建，降低全单音节方案的部署内存。新增构建路径在每次分配后重新取得 metadata 指针，并按偏移 Rebase 索引与词条列表，保持映射文件扩容重映射后的写入安全。该改动不改变 SDK 产物布局，但需要重新构建并发布新的 SDK 标签。
 
 复用构建目录时，Boost 头文件缓存按源码摘要重新生成，避免依赖锁已更新而实际仍编译旧头文件。Android SDK CI 的主机回归使用 Ubuntu 系统依赖，不能替代升级组件在 Android 上的运行验证。
 
