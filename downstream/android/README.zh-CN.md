@@ -76,3 +76,8 @@ python downstream/android/package.py D:/GitHub/tools/rime-build/windows/product 
 复用构建目录时，Boost 头文件缓存按源码摘要重新生成，避免依赖锁已更新而实际仍编译旧头文件。Android SDK CI 的主机回归使用 Ubuntu 系统依赖，不能替代升级组件在 Android 上的运行验证。
 
 依赖配方的配置、编译和安装均限制 Git 向父目录查找，避免 OpenCC 在 CI 的嵌套源码目录中误用 librime 标签生成自身版本号。Android 库与主机工具都校验生成的 OpenCC 版本必须与依赖锁完全一致。
+
+产物命名：
+
+- 引擎：`librime-<提交前8位>-<abi>.so`
+- 提供方 APK：`librime-engine-<提交前8位>-<abi>.apk`
