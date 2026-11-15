@@ -75,6 +75,8 @@ python downstream/android/package.py D:/GitHub/tools/rime-build/windows/product 
 
 2026-11-15 随上游日志迁移用 spdlog 1.17.0（提交 `79524ddd`）替换 glog 0.7.1：上游要求静态链接内置 spdlog，缺少 `deps/spdlog` 时配置直接失败。核心源码由 `git archive` 导出，不包含子模块，因此构建把依赖锁里的 spdlog 源码复制（Windows）或软链（Linux）到隔离源码副本的 `deps/spdlog`，同时按同一份源码单独安装 `libspdlog.a` 供 SDK 消费；两处编译选项一致，链接仍只使用 SDK 内的那一份。glog 补丁随之删除，主机回归改为初始化子模块。
 
+同日按上游 PR #1274（head `e8401caa`，尚未合入）合入紧凑词条存储与两段式反向词典构建，降低全单音节方案的部署内存。新增构建路径在每次分配后重新取得 metadata 指针，并按偏移 Rebase 索引与词条列表，保持映射文件扩容重映射后的写入安全。该改动不改变 SDK 产物布局，但需要重新构建并发布新的 SDK 标签。
+
 复用构建目录时，Boost 头文件缓存按源码摘要重新生成，避免依赖锁已更新而实际仍编译旧头文件。Android SDK CI 的主机回归使用 Ubuntu 系统依赖，不能替代升级组件在 Android 上的运行验证。
 
 依赖配方的配置、编译和安装均限制 Git 向父目录查找，避免 OpenCC 在 CI 的嵌套源码目录中误用 librime 标签生成自身版本号。Android 库与主机工具都校验生成的 OpenCC 版本必须与依赖锁完全一致。
