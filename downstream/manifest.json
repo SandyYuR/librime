@@ -119,6 +119,15 @@
       "url": "https://github.com/rime/librime/pull/1260",
       "integration": "upstream-master",
       "commit": "bb56876890ba60f446fa2640c244b1794b965eda"
+    },
+    {
+      "number": 1274,
+      "url": "https://github.com/rime/librime/pull/1274",
+      "integration": "downstream-adapted",
+      "commit": "3bbbe5e1b248d48d8940917ab178e36c79161b3d",
+      "pr_head": "e8401caa7a0df06a2b5c6723724b2b83f79f807e",
+      "merged": false,
+      "scope": "紧凑词条存储与两段式反向词典构建降低部署内存；下游为新增路径补齐映射重映射保护。"
     }
   ],
   "maintenance": {
@@ -259,12 +268,60 @@
           "scope": "android-spdlog",
           "original_commits": [],
           "decision": "上游静态链接内置 spdlog 且缺少 deps/spdlog 时配置失败；Android 构建从依赖锁取同一份源码，导出源码副本时补入 deps/spdlog，并安装 libspdlog.a 供 SDK 消费，glog 补丁与主机依赖同步移除。"
+        },
+        {
+          "scope": "compact-dictionary-pr1274",
+          "original_commits": [],
+          "decision": "PR #1274 仍未合入；按 head e8401caa 合入紧凑词条与两段式反向词典构建，并为新增路径补齐分配后重取 metadata、按偏移 Rebase 的重映射保护。"
         }
       ],
       "related_open_prs_not_adopted": [
         {
           "number": 1200,
           "reason": "仅面向 glibc 的内存归还，不替代编译对象生命周期或 Android bionic 策略。"
+        }
+      ]
+    },
+    "consolidation": {
+      "date": "2026-11-15",
+      "commits_before": 15,
+      "commits_after": 12,
+      "policy": "测试、文档与构建类提交并入对应提交；功能与修复提交保持独立。已发布的 android-sdk-* 标签与产物不变。",
+      "merged": [
+        {
+          "scope": "rewriter-pr1232",
+          "original_commits": [
+            "ea9787bba072d5468550ee099a45a7fbc9230f12"
+          ],
+          "decision": "provenance 文档与 manifest 是 #1232 迁入的收尾记录，并入重写过滤器提交。"
+        },
+        {
+          "scope": "user-dictionary-benchmark",
+          "original_commits": [
+            "52cc6529aa9c20cbad25438df29b7d4079f25e87"
+          ],
+          "decision": "缓存基准工具与用户词学习事务同属用户词典模块，并入学习事务提交。"
+        },
+        {
+          "scope": "android-build",
+          "original_commits": [
+            "ac306defedfee1a47de9965ecfce202ab7a4fea3",
+            "614124ee4a00d9dd031d050742c92ae935e7107e"
+          ],
+          "decision": "固定 SDK 构建、外置引擎打包与 spdlog 依赖切换同属构建层，合并为一条构建提交。"
+        },
+        {
+          "scope": "script-translator-tab",
+          "original_commits": [
+            "120abe7883775b102d4e485f30ae2da195e74cd6"
+          ],
+          "decision": "该提交的外置引擎打包部分并入构建提交，音节栏修复与原生回归保持独立。"
+        }
+      ],
+      "kept_separate": [
+        {
+          "commit": "da8d1e7c41c8abddea4f5a55b2983f91866b84a3",
+          "decision": "本提交登记 #1274 整理后的提交与合并清单；若并入 #1274 提交会形成自引用，保持独立。"
         }
       ]
     }
