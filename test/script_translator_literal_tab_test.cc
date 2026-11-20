@@ -410,8 +410,9 @@ TEST(ScriptTranslatorLiteralBoundary,
   }
 }
 
-TEST(ScriptTranslatorLiteralBoundary,
-     NonDigitPinyinKeepsExistingCompletionTabs) {
+// Letter-key input gets no syllable tabs at all; the bar is digit-key only.
+// Completion still applies, so "zhua" reaches zhuan/zhuang.
+TEST(ScriptTranslatorLiteralBoundary, NonDigitPinyinHasNoTabs) {
   constexpr const char* schema_id = "literal_pinyin_completion_boundary";
   ASSERT_NO_FATAL_FAILURE(BuildLiteralBoundaryResources(
       schema_id, "abcdefghijklmnopqrstuvwxyz", "", true));
@@ -420,9 +421,7 @@ TEST(ScriptTranslatorLiteralBoundary,
   session.Type("zhua");
 
   const auto tabs = session.Tabs();
-  EXPECT_EQ((std::vector<std::string>{"zhuan:4", "zhuang:4"}),
-            FullSyllableTabs(tabs))
-      << DescribeTabs(tabs);
+  EXPECT_TRUE(tabs.empty()) << DescribeTabs(tabs);
   const auto candidates = session.Candidates();
   for (const auto* expected : {"转", "装"}) {
     EXPECT_NE(candidates.end(),
@@ -680,7 +679,7 @@ TEST(ScriptTranslatorLiteralTabRegression,
 }
 
 TEST(ScriptTranslatorLiteralTabRegression,
-     AlphabeticCompletionWithDeriveKeepsExistingTabs) {
+     AlphabeticCompletionWithDeriveHasNoTabs) {
   constexpr const char* id = "literal_alpha_completion_with_derive";
   ASSERT_NO_FATAL_FAILURE(BuildTabResources(
       id, "转\tzhuan\t100\n装\tzhuang\t100\n", "    - derive/^qqq$/rrr/\n",
@@ -688,8 +687,8 @@ TEST(ScriptTranslatorLiteralTabRegression,
   LiteralTabSession session;
   ASSERT_TRUE(session.Open(id));
   session.Type("zhua");
-  EXPECT_EQ((std::vector<std::string>{"zhuan:4", "zhuang:4"}),
-            FullSyllableTabs(session.Tabs()));
+  // Letter-key input is exact, so it gets no syllable tabs.
+  EXPECT_TRUE(session.Tabs().empty());
   EXPECT_EQ((std::set<std::string>{"转", "装"}), session.CandidateSet());
 }
 

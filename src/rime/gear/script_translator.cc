@@ -682,6 +682,20 @@ void ScriptTranslator::CollectSyllableTabs(size_t start_pos,
   if (start_pos >= input.length())
     return;
 
+  // Syllable tabs only help digit-key (T9) input, where several syllables
+  // share the same keys. Letter-key input is exact, so no tabs are offered.
+  // Decide from the syllable that starts at start_pos, not from the first
+  // character of the whole input: after a prefix is confirmed the cursor moves
+  // on, and a schema may mix digit and letter syllables. Delimiters are the
+  // ones configured by the schema.
+  size_t syllable_pos = start_pos;
+  while (syllable_pos < input.length() &&
+         delimiters().find(input[syllable_pos]) != string::npos)
+    ++syllable_pos;
+  if (syllable_pos >= input.length() ||
+      !std::isdigit(static_cast<unsigned char>(input[syllable_pos])))
+    return;
+
   // Build and prune the full graph against the current tab constraints, then
   // inspect the node at start_pos. This keeps tree navigation aligned with the
   // active selection path instead of exposing the raw unfiltered graph.

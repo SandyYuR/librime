@@ -1,0 +1,14 @@
+# Rime testing dictionary for mixed digit/letter input-tab tests
+# encoding: utf-8
+
+---
+name: dictionary_tab_mixed_test
+version: "0.1"
+sort: by_weight
+...
+
+沈	shen	100
+生	sheng	100
+钻	zuan	100
+转	zhuan	100
+装	zhuang	100

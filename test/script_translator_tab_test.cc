@@ -77,6 +77,62 @@ menu:
   page_size: 20
 )YAML";
 
+// Mixed schema: letters and digits share one alphabet, so a composition can
+// hold a letter syllable before or after a digit one. Tab collection has to
+// look at the syllable at the queried position instead of the first character
+// of the whole input.
+constexpr const char* kMixedSchema = R"YAML(# encoding: utf-8
+schema:
+  schema_id: tab_mixed_test
+  name: tab mixed test
+  version: "1"
+engine:
+  processors: [speller, fluency_editor]
+  segmentors: [abc_segmentor]
+  translators: [script_translator]
+speller:
+  alphabet: "abcdefghijklmnopqrstuvwxyz1234567890"
+  delimiter: " '"
+  algebra:
+    - derive/^(.*)$/\U$1/
+    - xlit/ABCDEFGHIJKLMNOPQRSTUVWXYZ/22233344455566677778889999/
+translator:
+  dictionary: dictionary_tab_mixed_test
+  enable_completion: true
+  enable_correction: false
+  enable_user_dict: false
+menu:
+  page_size: 20
+)YAML";
+
+// Same dictionary, but a letter that is also in the alphabet is configured as
+// the delimiter. A leading delimiter makes the query position point at a
+// non-digit character, so tab collection has to skip it before judging whether
+// the syllable uses digit keys.
+constexpr const char* kLetterDelimiterSchema = R"YAML(# encoding: utf-8
+schema:
+  schema_id: tab_letter_delimiter_test
+  name: tab letter delimiter test
+  version: "1"
+engine:
+  processors: [speller, fluency_editor]
+  segmentors: [abc_segmentor]
+  translators: [script_translator]
+speller:
+  alphabet: "abcdefghijklmnopqrstuvwxyz1234567890"
+  delimiter: "a"
+  algebra:
+    - derive/^(.*)$/\U$1/
+    - xlit/ABCDEFGHIJKLMNOPQRSTUVWXYZ/22233344455566677778889999/
+translator:
+  dictionary: dictionary_tab_mixed_test
+  enable_completion: true
+  enable_correction: false
+  enable_user_dict: false
+menu:
+  page_size: 20
+)YAML";
+
 struct Tab {
   std::string label;
   size_t span;
@@ -145,6 +201,22 @@ class Session {
 
   bool SelectTab(size_t position, const std::string& label, size_t span) {
     return api_->select_tab(session_, position, label.c_str(), span);
+  }
+
+  bool SelectCandidate(const std::string& text) {
+    int index = -1;
+    RIME_STRUCT(RimeContext, ctx);
+    if (api_->get_context(session_, &ctx)) {
+      for (int i = 0; i < ctx.menu.num_candidates; ++i) {
+        if (ctx.menu.candidates[i].text &&
+            text == ctx.menu.candidates[i].text) {
+          index = i;
+          break;
+        }
+      }
+      api_->free_context(&ctx);
+    }
+    return index >= 0 && api_->select_candidate(session_, index);
   }
 
   std::string Preedit() {
@@ -339,6 +411,45 @@ TEST(ScriptTranslatorTab, SchemaWithoutFuzzyRulesIsUnchanged) {
   EXPECT_EQ(std::string::npos, candidates.find("生")) << candidates;
 }
 
+// Letter-key (26-key) input is exact, so it gets no syllable tabs at all: the
+// bar only helps digit-key input, where several syllables share one key.  The
+// fuzzy spelling still takes part in translation, so "shen" keeps 生 although
+// its canonical spelling is "sheng".
+TEST(ScriptTranslatorTab, LetterInputHasNoTabs) {
+  std::ofstream("tab_letter_test.schema.yaml") << R"YAML(# encoding: utf-8
+schema:
+  schema_id: tab_letter_test
+  name: tab letter test
+  version: "1"
+engine:
+  processors: [speller]
+  segmentors: [abc_segmentor]
+  translators: [script_translator]
+speller:
+  alphabet: "abcdefghijklmnopqrstuvwxyz"
+  algebra:
+    - derive/(e)ng(.*)$/$1n$2/
+    - derive/(e)n([^g].*)?$/$1ng$2/
+translator:
+  dictionary: dictionary_tab_test
+menu:
+  page_size: 20
+)YAML";
+  BuildDictionary("tab_letter_test.schema.yaml");
+
+  Session session;
+  session.Open("tab_letter_test");
+  session.Type("shen");
+
+  // No syllable tabs on letter input, not even the fuzzy-only "sheng" label.
+  EXPECT_TRUE(session.Tabs().empty()) << Describe(session.Tabs());
+  EXPECT_EQ("shen", session.Preedit());
+
+  std::string candidates = session.Candidates();
+  EXPECT_NE(std::string::npos, candidates.find("沈")) << candidates;
+  EXPECT_NE(std::string::npos, candidates.find("生")) << candidates;
+}
+
 TEST(ScriptTranslatorTab, TransformationBeforeDerivationDoesNotInventRelation) {
   const auto candidates = SelectWithAlgebra(
       "tab_prior_xform", "    - xform/^qi$/ri/\n    - derive/^qi$/pi/\n", kPi,
@@ -434,4 +545,106 @@ TEST(ScriptTranslatorTab, DerivedRelationMatchesCompletionEdge) {
                         "    - xform/^sheng$/aabbb/\n",
                         "222", "shen", 3, "", "  enable_completion: true\n");
   EXPECT_NE(std::string::npos, candidates.find("生")) << candidates;
+}
+
+TEST(ScriptTranslatorTab, MixedInputShowsTabsOnlyForDigitSyllables) {
+  std::ofstream("tab_mixed_test.schema.yaml") << kMixedSchema;
+  BuildDictionary("tab_mixed_test.schema.yaml", "dictionary_tab_mixed_test");
+
+  Session session;
+  session.Open("tab_mixed_test");
+  session.Type("shen9826");
+  // Position 0 is a letter syllable: its keys are exact, so the bar is hidden.
+  EXPECT_TRUE(session.Tabs(0).empty());
+  // Position 4 starts the digit syllable 9826, which does need disambiguation.
+  const auto digit_tabs = session.Tabs(4);
+  ASSERT_FALSE(digit_tabs.empty());
+  EXPECT_NE(std::string::npos, Describe(digit_tabs).find("zuan:4"))
+      << Describe(digit_tabs);
+}
+
+TEST(ScriptTranslatorTab, LetterSyllableHasNoTabsAfterDigitPrefix) {
+  std::ofstream("tab_mixed_test.schema.yaml") << kMixedSchema;
+  BuildDictionary("tab_mixed_test.schema.yaml", "dictionary_tab_mixed_test");
+
+  Session session;
+  session.Open("tab_mixed_test");
+  session.Type("7436zhua");
+  // The digit prefix still offers syllable tabs; the letter syllable after it
+  // stays exact and therefore shows no tabs of its own.
+  const auto prefix_tabs = session.Tabs(0);
+  ASSERT_FALSE(prefix_tabs.empty());
+  EXPECT_NE(std::string::npos, Describe(prefix_tabs).find("shen:4"))
+      << Describe(prefix_tabs);
+  EXPECT_TRUE(session.Tabs(4).empty());
+}
+
+TEST(ScriptTranslatorTab, ConfirmedPrefixKeepsFollowingSyllableKind) {
+  std::ofstream("tab_mixed_test.schema.yaml") << kMixedSchema;
+  BuildDictionary("tab_mixed_test.schema.yaml", "dictionary_tab_mixed_test");
+
+  Session letter_first;
+  letter_first.Open("tab_mixed_test");
+  letter_first.Type("shen9826");
+  // Confirm the letter prefix by really choosing a candidate. Selecting the
+  // tab "沈"/4 would only move the tab cursor and empty the menu, so these
+  // assertions could pass without a confirmed prefix.
+  ASSERT_TRUE(letter_first.SelectCandidate("沈"));
+  const std::string letter_preedit = letter_first.Preedit();
+  EXPECT_EQ(std::string::npos, letter_preedit.find("shen")) << letter_preedit;
+  EXPECT_NE(std::string::npos, letter_preedit.find("9826")) << letter_preedit;
+  EXPECT_NE(std::string::npos, letter_first.Candidates().find("钻"))
+      << letter_first.Candidates();
+  // The cursor moves past the confirmed letter prefix, so the automatic
+  // position now points at the digit syllable and tabs must reappear.
+  const auto digit_tabs = letter_first.Tabs();
+  ASSERT_FALSE(digit_tabs.empty());
+  EXPECT_NE(std::string::npos, Describe(digit_tabs).find("zuan:4"))
+      << Describe(digit_tabs);
+
+  Session digit_first;
+  digit_first.Open("tab_mixed_test");
+  digit_first.Type("7436zhua");
+  ASSERT_TRUE(digit_first.SelectCandidate("沈"));
+  const std::string digit_preedit = digit_first.Preedit();
+  EXPECT_EQ(std::string::npos, digit_preedit.find("7436")) << digit_preedit;
+  EXPECT_NE(std::string::npos, digit_preedit.find("zhua")) << digit_preedit;
+  EXPECT_NE(std::string::npos, digit_first.Candidates().find("转"))
+      << digit_first.Candidates();
+  // Same cursor advance in the other direction: the remaining letters are
+  // exact, so the bar disappears even though the input starts with digits.
+  EXPECT_TRUE(digit_first.Tabs().empty());
+}
+
+TEST(ScriptTranslatorTab, DelimiterDoesNotHideDigitSyllableTabs) {
+  std::ofstream("tab_mixed_test.schema.yaml") << kMixedSchema;
+  BuildDictionary("tab_mixed_test.schema.yaml", "dictionary_tab_mixed_test");
+
+  Session session;
+  session.Open("tab_mixed_test");
+  session.Type("7436'zhua");
+  // Digits before the configured delimiter keep their syllable tabs.
+  const auto digit_tabs = session.Tabs(0);
+  ASSERT_FALSE(digit_tabs.empty());
+  EXPECT_NE(std::string::npos, Describe(digit_tabs).find("shen:"))
+      << Describe(digit_tabs);
+  // The letters behind the delimiter stay exact, so their position has none.
+  EXPECT_TRUE(session.Tabs(5).empty());
+}
+
+TEST(ScriptTranslatorTab, LeadingLetterDelimiterDoesNotHideDigitSyllableTabs) {
+  std::ofstream("tab_letter_delimiter_test.schema.yaml")
+      << kLetterDelimiterSchema;
+  BuildDictionary("tab_letter_delimiter_test.schema.yaml",
+                  "dictionary_tab_mixed_test");
+
+  Session session;
+  session.Open("tab_letter_delimiter_test");
+  session.Type("a9826");
+  // Position 0 points at the configured delimiter, not at the digit syllable;
+  // collection has to skip it before deciding whether tabs are offered. The
+  // span covers the delimiter, hence zuan:5.
+  const auto tabs = session.Tabs(0);
+  ASSERT_FALSE(tabs.empty());
+  EXPECT_NE(std::string::npos, Describe(tabs).find("zuan:5")) << Describe(tabs);
 }
