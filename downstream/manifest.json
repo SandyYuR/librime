@@ -324,6 +324,33 @@
           "decision": "本提交登记 #1274 整理后的提交与合并清单；若并入 #1274 提交会形成自引用，保持独立。"
         }
       ]
+    },
+    "syllable_tab_review": {
+      "date": "2026-11-16",
+      "original_commit": "a586daa5e86a7dadf287187606f76983a494c1ae",
+      "source_head_before_rewrite": "ae914836746a0427dc18124273e1d4a9064df108",
+      "decision": "重写音节栏提交并移到下游分支末尾；保留原排序，按完整 algebra 顺序重放原始带调拼写，跟踪 derive/fuzz 分支的音节来源并核对最终图边。普通 xform 不建立模糊关系，后续删除或不可达的派生不保留；九键重码不抹掉真实模糊关系。",
+      "regression_suite": "ScriptTranslatorTab",
+      "regression_cases": 18,
+      "fixture_policy": "原六项回归继续使用原词典；新增十二项使用独立词典，覆盖前后置变换、derive/fuzz 重码、带调、删除、分隔符、canonicalizer、completion 与 n/en 精确筛选。"
+    },
+    "syllable_tab_literal_filter": {
+      "date": "2026-11-16",
+      "base_commit": "8bbdf7733b31162a41baeb2b3bfe0f9962dc4a9a",
+      "original_pr_commit": "2b2c15cfc516a42d3b87d7f3eabbd7ec71df15ef",
+      "user_patch_sha256": "2c7cb50bd22258588067d5488f7ccbf2031295cfbbfb9f1865c78c9334d97543",
+      "typed_only_reference_patch_sha256": "fe757f97b9b145d498015593c58223477624646313a4e44093d9a31b6dfd052e",
+      "user_config_sha256": "06c3c40bf3b6b4fd82f69939ffdd2f8a86607b9d56cae2763f36d784cbd1b1e0",
+      "decision": "基于有序候选筛选修订用户补丁：仅含 derive/fuzz 且存在数字反向映射的输入使用字面标签，避免声母/韵母组合模糊生成的中间标签被误选；无这些规则或非数字输入保留旧行为。投影保留大小写、去调及同拼写编码派生，按真实分隔符处理前后边界，完整字面标签不来自简拼、补全或纠错；标签生成、直接候选比较与派生来源查找在同一输入域统一 ü/v。候选继续按完整 algebra 和真实 prism 边处理，单向规则不扩成无向关系，同键无关音节不混入。",
+      "regression_suites": [
+        "ScriptTranslatorTab",
+        "ScriptTranslatorLiteralTab",
+        "ScriptTranslatorLiteralBoundary",
+        "ScriptTranslatorLiteralTabRegression",
+        "ScriptTranslatorLiteralTabExhaustive"
+      ],
+      "regression_scope": "保留用户完整29条algebra夹具；单向 zh→z/ang→an 的两种顺序分别验证合法字面标签及可达候选，另以显式语音组穷举双向组合规则、同键排除、禁止互通的音节及声调变体，覆盖 zhuang、连续选择、长句、退格、清空、ü/v 和分隔符。穷举规则使用完整UTF-8元音分组，避免多字节字符类绕过 ian/yan 排除；用户原配置夹具保持原字节语义。",
+      "verification_limit": "原生最小用例复现了中间标签选择的不对称，并验证字面标签过滤；之前转速/专属夹具未复现的记录只适用于其当时输入。宿主用例及构建检查不能代替用户完整方案、学习库与设备现场验收。"
     }
   }
 }
