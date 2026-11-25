@@ -1,0 +1,374 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/SandyYuR/librime",
+  "maintenance_branch": "zhongzhou",
+  "upstream_repository": "https://github.com/rime/librime",
+  "upstream_commit": "1c0a468e7fff2b2763400abe1e892ed66d08b00e",
+  "migration": {
+    "prebuilder_commit": "bcfb896fd531caad2e95b8a580b45fb58956f171",
+    "core_tree": "e90ec6076ac7177853dc8fac39b2a35b80590ceb",
+    "imported_patches": [
+      {
+        "name": "librime.patch",
+        "sha256": "ef2260425b9a456dbea75f103a7c6ed6e49efdcb671bb86f9c444d3099ee0af4",
+        "commit": "5d76b2cabd523e97b65f9ea5652a45d7b99a836f"
+      },
+      {
+        "name": "librime-conditional-tabs-test.patch",
+        "sha256": "e42afbcb8b2b817ff4b5e2e51fc67b4821fad8f75e1e83de3fddba1dd59a5aad",
+        "commit": "a709248562061c7a5a973a7b86b0c47495b3a04f"
+      },
+      {
+        "name": "librime-perf-syllabifier-cache-repeated-QuerySpelling-iterat.patch",
+        "sha256": "6061f33c653cd2c9fe3cb41d259168d5e65a5174bfb002f7b9e48228c5911d91",
+        "commit": "8c5951051114bf341313c2196987e622b7bdb8c2"
+      },
+      {
+        "name": "librime-perf-deploy-compile-independent-dictionaries-in-para.patch",
+        "sha256": "ff60886f88bbe1a31c77cac92b477a95a9b7b1f978c69c338d6cd9078a55bd14",
+        "commit": "5bdfe1584a760b230bffd0b5206a329e3c046df0"
+      },
+      {
+        "name": "librime-userdict-cache.patch",
+        "sha256": "09984979c03ba27ec629965d2b4fcb04729582df0f84966e138dba2206835efb",
+        "commit": "d4ae2ae1694d9026da682e84c8398b69c50afae4"
+      },
+      {
+        "name": "librime-fix-mapped-file-remap.patch",
+        "sha256": "c782ca9e96d1034487f09c902367b95cc6c2be7343e933327b0e31c306c430d2",
+        "commit": "d670754959f2e39adcc97a4c4208d139df0baec8"
+      },
+      {
+        "name": "librime-defer-composition-refresh-on-delete.patch",
+        "sha256": "7dcc7f3c0a78edf7695f551500f2ba9e76959d776140ee78b4e4ce47bb4b025a",
+        "commit": "bf1daafaec1dbb8f642d32d249d0d988dbe4f07e"
+      },
+      {
+        "name": "librime-detect-modifications-fingerprint.patch",
+        "sha256": "1ebbcc72af6f05f8c293abf15bbd23034ce63f6d595c6f82b755e2bc4ba45f9c",
+        "commit": "02cbb3e4aab22f96fbffb91219725e49a8a990fe"
+      }
+    ],
+    "equivalence": "All tracked files match the previous ordered-patch source snapshot byte for byte.",
+    "files_compared": 382
+  },
+  "upstream_prs": [
+    {
+      "number": 1203,
+      "url": "https://github.com/rime/librime/pull/1203",
+      "integration": "upstream-master",
+      "commit": "e930f57b5cc2eeac91aed3b6c7fe62e96f1fc8bc"
+    },
+    {
+      "number": 1196,
+      "url": "https://github.com/rime/librime/pull/1196",
+      "integration": "upstream-master",
+      "commit": "9777cb2f25ff15116d6720141e7f0e539ac68063",
+      "merged_pr_head": "29b47d8866d68776c6dff02ceb30c9e065b446f3"
+    },
+    {
+      "number": 1247,
+      "url": "https://github.com/rime/librime/pull/1247",
+      "integration": "equivalent-extended-downstream",
+      "commit": "970abac803f91d75500a9819702139bf8babfb02",
+      "merged": false,
+      "scope": "保留精确排除 .temp 的行为，并在下游扩展临时库清理、失败传播与回归。"
+    },
+    {
+      "number": 1268,
+      "url": "https://github.com/rime/librime/pull/1268",
+      "integration": "upstream-master",
+      "commit": "a104ec6cafdb61a19f0e79707741733a0963c431"
+    },
+    {
+      "number": 1272,
+      "url": "https://github.com/rime/librime/pull/1272",
+      "integration": "upstream-master",
+      "commit": "c95c0d2390c827bf44e5eb8989704ba723ec0d0c"
+    },
+    {
+      "number": 1260,
+      "url": "https://github.com/rime/librime/pull/1260",
+      "integration": "upstream-master",
+      "commit": "bb56876890ba60f446fa2640c244b1794b965eda"
+    },
+    {
+      "number": 1274,
+      "url": "https://github.com/rime/librime/pull/1274",
+      "integration": "upstream-master",
+      "commit": "f70ae3c0b2dab61553cc74516268c0633a93dba0",
+      "pr_head": "e8401caa7a0df06a2b5c6723724b2b83f79f807e",
+      "merged": true,
+      "scope": "紧凑词条存储与两段式反向词典构建降低部署内存；上游合入后下游不再携带该补丁。"
+    }
+  ],
+  "maintenance": {
+    "history_strategy": "rebase-onto-upstream",
+    "upstream_pr_integration": "one-commit-per-pr",
+    "superseded_patches": [
+      {
+        "commit": "5bdfe1584a760b230bffd0b5206a329e3c046df0",
+        "upstream_pr": 1203,
+        "reason": "Replaced by the official compile graph and bounded scheduler in the upstream base."
+      },
+      {
+        "commit": "d4ae2ae1694d9026da682e84c8398b69c50afae4",
+        "rebased_commit": "1278e010785ddcc32f42c37c8f9ead0091c5dd4b",
+        "upstream_pr": 1196,
+        "upstream_commit": "9777cb2f25ff15116d6720141e7f0e539ac68063",
+        "reason": "The cache implementation and regression cases are now included in the official upstream base. Only unique benchmark tooling is retained downstream."
+      }
+    ],
+    "last_upstream_review": {
+      "date": "2026-11-15",
+      "previous_upstream_commit": "a104ec6cafdb61a19f0e79707741733a0963c431",
+      "upstream_commit": "bb56876890ba60f446fa2640c244b1794b965eda",
+      "previous_downstream_commit": "5a64550e42ac872dd2ecc4f816f4a64f8b0a72e5",
+      "upstream_changes": [
+        {
+          "commit": "c95c0d2390c827bf44e5eb8989704ba723ec0d0c",
+          "pull_request": 1272,
+          "scope": "词典编译改为紧凑条目与并行分组，降低部署峰值内存，原样保留。"
+        },
+        {
+          "commit": "e548b08fea9843b0165cccf132ee484b25116900",
+          "scope": "新增固定提交的 deps/spdlog 子模块，原样保留。"
+        },
+        {
+          "commit": "6e23ed28fe56f050e921a914c1b9144dd7a92536",
+          "scope": "日志由 glog 迁移到 spdlog 门面，原样保留；下游同步替换 Android SDK 的日志依赖。"
+        },
+        {
+          "commit": "023f7872e26541d786a500791e67f8332f22d090",
+          "scope": "移除 glog 与 gflags 的构建与查找脚本，原样保留。"
+        },
+        {
+          "commit": "bb56876890ba60f446fa2640c244b1794b965eda",
+          "pull_request": 1260,
+          "scope": "用户库打开失败时尝试隔离损坏库并恢复，原样保留；临时库恢复仍按下游事务处理。"
+        }
+      ],
+      "upstream_content_delta_preserved": true,
+      "downstream_commits_before": 12,
+      "downstream_commits_after": 12,
+      "groups": [
+        {
+          "scope": "disambiguation",
+          "original_commits": [
+            "b88cb57f47a71cd003d1f8a2e7aebbea6ca37d36",
+            "d331814c532b092380e0edca0b1f8c092bf34f3a"
+          ],
+          "decision": "保留消歧扩展，并将条件门控回归并入功能提交；上游条件组件未提供这些扩展 API。"
+        },
+        {
+          "scope": "syllabifier-cache",
+          "original_commits": [
+            "2aafeae1560e1e7cb30cbdb8146ce6f13bd0074c"
+          ],
+          "decision": "保留重复 QuerySpelling 缓存；#1268 优化词典迭代器，未替代运行时查询缓存。"
+        },
+        {
+          "scope": "mapped-file-remap",
+          "original_commits": [
+            "64d671875f4dd9c2588e39be471e517648958080"
+          ],
+          "decision": "保留重映射后的指针和元数据恢复；同时保留上游 string_table_builder 释放。"
+        },
+        {
+          "scope": "candidate-delete-refresh",
+          "original_commits": [
+            "bd94b83fb35e11d8265e1bcbc2e61a5e4d0aca3e"
+          ],
+          "decision": "保留多监听器完成后统一刷新组合，避免忘词回调改写后续监听器的目标。"
+        },
+        {
+          "scope": "deployment-fingerprint",
+          "original_commits": [
+            "6f32853ac35c4a6c864b1f214594ecd3824d398e"
+          ],
+          "decision": "配置指纹与 #1264 的 installation 根节点修复属于不同职责，两者同时保留。"
+        },
+        {
+          "scope": "provenance",
+          "original_commits": [
+            "175aa184c32f496194f9ea1d8e0e8b84d88c02e0"
+          ],
+          "decision": "保留初始迁移证据和固定来源，不把历史映射改成当前 SHA。"
+        },
+        {
+          "scope": "user-dictionary-benchmark",
+          "original_commits": [
+            "535251f6ac382a239aebc9ad07710348306a8432"
+          ],
+          "decision": "上游已提供 #1196 缓存实现，只保留独有的可选基准工具。"
+        },
+        {
+          "scope": "commit-learning-transaction",
+          "original_commits": [
+            "69a934ac84902ce0bce911e3419a9113e9906b2d"
+          ],
+          "decision": "保留同次上屏的跨 Memory 事务与跨上下文隔离；未发现上游等价替代。"
+        },
+        {
+          "scope": "android-sdk",
+          "original_commits": [
+            "31794bfdc5555ac70a4aeb46e6684a760a188cf7",
+            "456fc2f3f69137d9246512b8c07245734526ba24",
+            "30511eed172a8a8ee08b8532fe097febcd75e514"
+          ],
+          "decision": "保留固定四 ABI SDK、既有依赖升级与 Windows 开发入口；本轮不再前移插件或依赖版本。"
+        },
+        {
+          "scope": "restore-scratch-userdb",
+          "original_commits": [
+            "483ffbca5fdfa8a13698d28085e3154d48e435b3",
+            "d7f2720476566ed557ab3975b758d85b9c6f0f0e"
+          ],
+          "decision": "官方 PR #1247 仍未合入，保留精确排除 .temp 的行为；将枚举修复与临时库预清理、打开前清理守卫、失败传播、诊断和 Windows 内部测试链接合并为一个提交。"
+        },
+        {
+          "scope": "android-spdlog",
+          "original_commits": [],
+          "decision": "上游静态链接内置 spdlog 且缺少 deps/spdlog 时配置失败；Android 构建从依赖锁取同一份源码，导出源码副本时补入 deps/spdlog，并安装 libspdlog.a 供 SDK 消费，glog 补丁与主机依赖同步移除。"
+        },
+        {
+          "scope": "compact-dictionary-pr1274",
+          "original_commits": [],
+          "decision": "PR #1274 仍未合入；按 head e8401caa 合入紧凑词条与两段式反向词典构建，并为新增路径补齐分配后重取 metadata、按偏移 Rebase 的重映射保护。"
+        }
+      ],
+      "related_open_prs_not_adopted": [
+        {
+          "number": 1200,
+          "reason": "仅面向 glibc 的内存归还，不替代编译对象生命周期或 Android bionic 策略。"
+        }
+      ]
+    },
+    "consolidation": {
+      "date": "2026-11-15",
+      "commits_before": 15,
+      "commits_after": 12,
+      "policy": "测试、文档与构建类提交并入对应提交；功能与修复提交保持独立。已发布的 android-sdk-* 标签与产物不变。",
+      "merged": [
+        {
+          "scope": "user-dictionary-benchmark",
+          "original_commits": [
+            "52cc6529aa9c20cbad25438df29b7d4079f25e87"
+          ],
+          "decision": "缓存基准工具与用户词学习事务同属用户词典模块，并入学习事务提交。"
+        },
+        {
+          "scope": "android-build",
+          "original_commits": [
+            "ac306defedfee1a47de9965ecfce202ab7a4fea3",
+            "614124ee4a00d9dd031d050742c92ae935e7107e"
+          ],
+          "decision": "固定 SDK 构建、外置引擎打包与 spdlog 依赖切换同属构建层，合并为一条构建提交。"
+        },
+        {
+          "scope": "script-translator-tab",
+          "original_commits": [
+            "120abe7883775b102d4e485f30ae2da195e74cd6"
+          ],
+          "decision": "该提交的外置引擎打包部分并入构建提交，音节栏修复与原生回归保持独立。"
+        }
+      ],
+      "kept_separate": [
+        {
+          "commit": "da8d1e7c41c8abddea4f5a55b2983f91866b84a3",
+          "decision": "本提交登记 #1274 整理后的提交与合并清单；若并入 #1274 提交会形成自引用，保持独立。"
+        }
+      ]
+    },
+    "syllable_tab_review": {
+      "date": "2026-11-16",
+      "original_commit": "a586daa5e86a7dadf287187606f76983a494c1ae",
+      "source_head_before_rewrite": "ae914836746a0427dc18124273e1d4a9064df108",
+      "decision": "重写音节栏提交并移到下游分支末尾；保留原排序，按完整 algebra 顺序重放原始带调拼写，跟踪 derive/fuzz 分支的音节来源并核对最终图边。普通 xform 不建立模糊关系，后续删除或不可达的派生不保留；九键重码不抹掉真实模糊关系。",
+      "regression_suite": "ScriptTranslatorTab",
+      "regression_cases": 18,
+      "fixture_policy": "原六项回归继续使用原词典；新增十二项使用独立词典，覆盖前后置变换、derive/fuzz 重码、带调、删除、分隔符、canonicalizer、completion 与 n/en 精确筛选。"
+    },
+    "syllable_tab_literal_filter": {
+      "date": "2026-11-16",
+      "base_commit": "8bbdf7733b31162a41baeb2b3bfe0f9962dc4a9a",
+      "original_pr_commit": "2b2c15cfc516a42d3b87d7f3eabbd7ec71df15ef",
+      "user_patch_sha256": "2c7cb50bd22258588067d5488f7ccbf2031295cfbbfb9f1865c78c9334d97543",
+      "typed_only_reference_patch_sha256": "fe757f97b9b145d498015593c58223477624646313a4e44093d9a31b6dfd052e",
+      "user_config_sha256": "06c3c40bf3b6b4fd82f69939ffdd2f8a86607b9d56cae2763f36d784cbd1b1e0",
+      "decision": "基于有序候选筛选修订用户补丁：仅含 derive/fuzz 且存在数字反向映射的输入使用字面标签，避免声母/韵母组合模糊生成的中间标签被误选；无这些规则或非数字输入保留旧行为。投影保留大小写、去调及同拼写编码派生，按真实分隔符处理前后边界，完整字面标签不来自简拼、补全或纠错；标签生成、直接候选比较与派生来源查找在同一输入域统一 ü/v。候选继续按完整 algebra 和真实 prism 边处理，单向规则不扩成无向关系，同键无关音节不混入。",
+      "regression_suites": [
+        "ScriptTranslatorTab",
+        "ScriptTranslatorLiteralTab",
+        "ScriptTranslatorLiteralBoundary",
+        "ScriptTranslatorLiteralTabRegression",
+        "ScriptTranslatorLiteralTabExhaustive"
+      ],
+      "regression_scope": "保留用户完整29条algebra夹具；单向 zh→z/ang→an 的两种顺序分别验证合法字面标签及可达候选，另以显式语音组穷举双向组合规则、同键排除、禁止互通的音节及声调变体，覆盖 zhuang、连续选择、长句、退格、清空、ü/v 和分隔符。穷举规则使用完整UTF-8元音分组，避免多字节字符类绕过 ian/yan 排除；用户原配置夹具保持原字节语义。",
+      "verification_limit": "原生最小用例复现了中间标签选择的不对称，并验证字面标签过滤；之前转速/专属夹具未复现的记录只适用于其当时输入。宿主用例及构建检查不能代替用户完整方案、学习库与设备现场验收。"
+    },
+    "upstream_sync_20261125": {
+      "date": "2026-11-25",
+      "previous_upstream_commit": "bb56876890ba60f446fa2640c244b1794b965eda",
+      "upstream_commit": "f70ae3c0b2dab61553cc74516268c0633a93dba0",
+      "previous_downstream_commit": "7c61add03d395ca651a1cca9dfd8f31807298a8d",
+      "decision": "按 rebase-onto-upstream 重放到 #1274 合入提交，删除下游自带的 #1274 移植，其余补丁逐条重放，冲突按上游结构解决；顶部两个九键音节提交合并为一个。构建(Android)、文档(下游)与来源修正三个提交合并为一条构建/文档提交，代码修复保持独立。",
+      "dropped": [
+        {
+          "scope": "compact-dictionary-pr1274",
+          "commit": "3bbbe5e1b248d48d8940917ab178e36c79161b3d",
+          "reason": "上游 f70ae3c0 已合入 #1274（pr head e8401caa），下游不再携带该补丁。"
+        }
+      ],
+      "squashed": {
+        "commits": [
+          "d5afc2a70c77516cca5e698b2d8140140267b9a5",
+          "e18e29496bb771c0af2162cfc79a2cb1a2c01c45"
+        ],
+        "pre_rebase_commits": [
+          "9a3175013def3d4d051fa57eb3acbbb201139e8e",
+          "7c61add03d395ca651a1cca9dfd8f31807298a8d"
+        ],
+        "topic": "九键音节栏排序、模糊音节保留与数字输入显示"
+      }
+    },
+    "upstream_sync_20261125_1180": {
+      "date": "2026-11-25",
+      "previous_upstream_commit": "f70ae3c0b2dab61553cc74516268c0633a93dba0",
+      "upstream_commit": "1c0a468e7fff2b2763400abe1e892ed66d08b00e",
+      "previous_downstream_commit": "c3fac553ad82fc31d5db2a4a9a425167fdd54fc7",
+      "upstream_changes": [
+        {
+          "commit": "ada86eadf5824f287bc64d4ae2e4fc75c14cc6e9",
+          "scope": "单音节词条去重改为 EntryKey 与 Boost 平铺集合，旧 Boost 回退 hash_set；原样保留。"
+        },
+        {
+          "commit": "1c0a468e7fff2b2763400abe1e892ed66d08b00e",
+          "scope": "发布 1.18.0，仅更新版本号与变更日志。"
+        }
+      ],
+      "decision": "按 rebase-onto-upstream 重放到 1.18.0。12 条下游提交逐条重放，range-diff 与旧分支一致；上游未触及下游补丁文件，无冲突、无重复、无语义替代。九键排序/模糊保留、字面死路修复和末尾纯 clang-format 提交这三条合并为一条；Android 构建、下游构建/文档与来源记录三条合并为末尾一条构建/文档提交。最终历史 9 条，代码修复在前，构建与文档层在后，其他功能与修复提交保持独立。已发布 android-sdk-* 标签与产物不变。",
+      "squashed": {
+        "commits": [
+          "fcee6b6fe4d7490490e3ab12d88448dd90d8bfb9"
+        ],
+        "pre_rebase_commits": [
+          "8c92891fe08149b753c375ba71b5049dc2a7c40b",
+          "97bf68299b759e038dcfa7a68853aa34c14e64c5",
+          "c3fac553ad82fc31d5db2a4a9a425167fdd54fc7"
+        ],
+        "topic": "九键音节栏排序/模糊保留、字面死路修复与 clang-format 合并"
+      },
+      "build_docs_squashed": {
+        "commits": [
+          "168f1a06d7f74163b8f7daa5ef75a52d558b9456",
+          "fd77b6145cbd048cfae474b53875c717d76e59a7",
+          "4ee90f720677c25f4d3ee630284ae44bb8de0c7f"
+        ],
+        "topic": "固定 Android SDK 构建、下游构建文档与 1.18.0 同步记录",
+        "note": "三条合并为本轮末尾的构建/文档提交；395ecf20 与 f230cd3d 的说明文档也收纳于此，代码、测试与词典数据保留在各自提交。"
+      },
+      "verification": "ScriptTranslatorTab / ScriptTranslatorLiteralTab 38 项及全量 298 项原生回归通过；源码 CI 在推送后运行。"
+    }
+  }
+}
