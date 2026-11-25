@@ -20,6 +20,42 @@ namespace fs = std::filesystem;
 
 namespace rime {
 
+namespace {
+// Use the database implementation's removal operation. LevelDB acquires its
+// lock before deleting database files and leaves unrelated files untouched.
+bool CleanRestoreScratch(Db* db, const char* stage) noexcept {
+  try {
+    if (db->loaded() && !db->Close()) {
+      LOG(ERROR) << "failed to close restore scratch " << db->file_path()
+                 << " (" << stage << ").";
+      return false;
+    }
+    if (!db->Exists())
+      return true;
+    if (!db->Remove()) {
+      LOG(ERROR) << "failed to remove restore scratch " << db->file_path()
+                 << " (" << stage << ").";
+      return false;
+    }
+    if (db->Exists()) {
+      // DestroyDB can successfully remove the database while retaining the
+      // directory and unrelated files. Do not recursively delete those files.
+      LOG(WARNING) << "restore scratch path contains files not owned by the "
+                      "database after cleanup: "
+                   << db->file_path() << " (" << stage
+                   << "); preserving those files.";
+    }
+    return true;
+  } catch (const std::exception& ex) {
+    LOG(ERROR) << "restore scratch cleanup failed (" << stage
+               << "): " << ex.what();
+  } catch (...) {
+    LOG(ERROR) << "restore scratch cleanup failed (" << stage << ").";
+  }
+  return false;
+}
+}  // namespace
+
 UserDictManager::UserDictManager(Deployer* deployer)
     : deployer_(deployer), user_db_component_(UserDb::Require("userdb")) {
   if (deployer) {
@@ -43,6 +79,8 @@ void UserDictManager::GetUserDictList(UserDictList* user_dict_list,
     string name = path(it->path().filename()).to_utf8_string();
     if (boost::ends_with(name, component->extension())) {
       boost::erase_last(name, component->extension());
+      if (name == ".temp")  // Reserved for Restore().
+        continue;
       user_dict_list->push_back(name);
     }
   }
@@ -72,36 +110,65 @@ bool UserDictManager::Backup(const string& dict_name) {
 
 bool UserDictManager::Restore(const path& snapshot_file) {
   the<Db> temp(user_db_component_->Create(".temp"));
-  if (temp->Exists())
-    temp->Remove();
-  if (!temp->Open())
+  if (!CleanRestoreScratch(temp.get(), "before restore"))
     return false;
-  BOOST_SCOPE_EXIT((&temp)) {
-    temp->Close();
-    temp->Remove();
+
+  // Open() may create files before reporting a failure. Arm cleanup before
+  // opening; failed removal must never be followed by reopening old contents.
+  bool cleanup_done = false;
+  bool cleanup_succeeded = false;
+  auto cleanup = [&]() noexcept {
+    if (!cleanup_done) {
+      cleanup_done = true;
+      cleanup_succeeded = CleanRestoreScratch(temp.get(), "after restore");
+    }
+    return cleanup_succeeded;
+  };
+  BOOST_SCOPE_EXIT((&cleanup)) {
+    cleanup();
   }
   BOOST_SCOPE_EXIT_END
-  if (!temp->Restore(snapshot_file))
-    return false;
-  if (!UserDbHelper(temp).IsUserDb())
-    return false;
-  string db_name = UserDbHelper(temp).GetDbName();
-  if (db_name.empty())
-    return false;
-  the<Db> dest(user_db_component_->Create(db_name));
-  if (!dest->Open())
-    return false;
-  BOOST_SCOPE_EXIT((&dest)) {
-    dest->Close();
-  }
-  BOOST_SCOPE_EXIT_END
-  LOG(INFO) << "merging '" << snapshot_file << "' from "
-            << UserDbHelper(temp).GetUserId() << " into userdb '" << db_name
-            << "'...";
-  DbSource source(temp.get());
-  UserDbMerger merger(dest.get());
-  source >> merger;
-  return true;
+
+  const bool restored = [&]() {
+    if (!temp->Open())
+      return false;
+    {
+      // Defend against a backend reporting successful removal without having
+      // cleared its contents. Importing a snapshot only updates existing keys.
+      auto records = temp->QueryAll();
+      if (UserDbHelper(temp).GetDbName() != ".temp" || !records ||
+          !records->exhausted()) {
+        LOG(ERROR) << "restore scratch is not empty after cleanup: "
+                   << temp->file_path();
+        return false;
+      }
+    }
+    if (!temp->Restore(snapshot_file))
+      return false;
+    if (!UserDbHelper(temp).IsUserDb())
+      return false;
+    string db_name = UserDbHelper(temp).GetDbName();
+    if (db_name.empty())
+      return false;
+    the<Db> dest(user_db_component_->Create(db_name));
+    if (!dest->Open())
+      return false;
+    BOOST_SCOPE_EXIT((&dest)) {
+      dest->Close();
+    }
+    BOOST_SCOPE_EXIT_END
+    LOG(INFO) << "merging '" << snapshot_file << "' from "
+              << UserDbHelper(temp).GetUserId() << " into userdb '" << db_name
+              << "'...";
+    DbSource source(temp.get());
+    UserDbMerger merger(dest.get());
+    source >> merger;
+    return true;
+  }();
+  // Close all merge cursors before removing the scratch and include cleanup
+  // failure in this operation's result. The scope guard also covers exceptions.
+  const bool cleaned = cleanup();
+  return restored && cleaned;
 }
 
 int UserDictManager::Export(const string& dict_name, const path& text_file) {
@@ -208,6 +275,11 @@ bool UserDictManager::Synchronize(const string& dict_name) {
 }
 
 bool UserDictManager::SynchronizeAll() {
+  // Recover an interrupted restore even when this sync has no snapshots to
+  // merge. Discovery itself remains read-only and continues to skip .temp.
+  the<Db> temp(user_db_component_->Create(".temp"));
+  if (!CleanRestoreScratch(temp.get(), "before sync"))
+    return false;
   UserDictList user_dicts;
   GetUserDictList(&user_dicts);
   LOG(INFO) << "synchronizing " << user_dicts.size() << " user dicts.";
