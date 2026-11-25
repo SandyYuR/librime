@@ -3,7 +3,7 @@
   "repository": "https://github.com/SandyYuR/librime",
   "maintenance_branch": "zhongzhou",
   "upstream_repository": "https://github.com/rime/librime",
-  "upstream_commit": "2bae6b59b5ebbf2a8af7ffae5b22fbf090f91841",
+  "upstream_commit": "f70ae3c0b2dab61553cc74516268c0633a93dba0",
   "migration": {
     "prebuilder_commit": "bcfb896fd531caad2e95b8a580b45fb58956f171",
     "core_tree": "e90ec6076ac7177853dc8fac39b2a35b80590ceb",
@@ -93,6 +93,15 @@
       "adapted_files": [
         "src/rime/lever/deployment_tasks.cc"
       ]
+    },
+    {
+      "number": 1274,
+      "url": "https://github.com/rime/librime/pull/1274",
+      "integration": "upstream-master",
+      "commit": "f70ae3c0b2dab61553cc74516268c0633a93dba0",
+      "pr_head": "e8401caa7a0df06a2b5c6723724b2b83f79f807e",
+      "merged": true,
+      "scope": "紧凑词条存储与两段式反向词典构建降低部署内存；上游合入后下游不再携带该补丁。"
     }
   ],
   "maintenance": {
@@ -207,6 +216,11 @@
             "30511eed172a8a8ee08b8532fe097febcd75e514"
           ],
           "decision": "合并固定四 ABI SDK、既有依赖升级与 Windows 开发入口；本轮不再前移插件或依赖版本。"
+        },
+        {
+          "scope": "compact-dictionary-pr1274",
+          "original_commits": [],
+          "decision": "PR #1274 仍未合入；按 head e8401caa 合入紧凑词条与两段式反向词典构建，并为新增路径补齐分配后重取 metadata、按偏移 Rebase 的重映射保护。"
         }
       ],
       "related_open_prs_not_adopted": [
@@ -231,6 +245,74 @@
           "reason": "打开失败后的词库修复不等同于学习事务/重映射修复，不作为等价补丁替换。"
         }
       ]
+    },
+    "consolidation": {
+      "date": "2026-11-15",
+      "commits_before": 15,
+      "commits_after": 12,
+      "policy": "测试、文档与构建类提交并入对应提交；功能与修复提交保持独立。已发布的 android-sdk-* 标签与产物不变。",
+      "merged": [
+        {
+          "scope": "rewriter-pr1232",
+          "original_commits": [
+            "ea9787bba072d5468550ee099a45a7fbc9230f12"
+          ],
+          "decision": "provenance 文档与 manifest 是 #1232 迁入的收尾记录，并入重写过滤器提交。"
+        },
+        {
+          "scope": "user-dictionary-benchmark",
+          "original_commits": [
+            "52cc6529aa9c20cbad25438df29b7d4079f25e87"
+          ],
+          "decision": "缓存基准工具与用户词学习事务同属用户词典模块，并入学习事务提交。"
+        },
+        {
+          "scope": "android-build",
+          "original_commits": [
+            "ac306defedfee1a47de9965ecfce202ab7a4fea3",
+            "614124ee4a00d9dd031d050742c92ae935e7107e"
+          ],
+          "decision": "固定 SDK 构建、外置引擎打包与 spdlog 依赖切换同属构建层，合并为一条构建提交。"
+        },
+        {
+          "scope": "script-translator-tab",
+          "original_commits": [
+            "120abe7883775b102d4e485f30ae2da195e74cd6"
+          ],
+          "decision": "该提交的外置引擎打包部分并入构建提交，音节栏修复与原生回归保持独立。"
+        }
+      ],
+      "kept_separate": [
+        {
+          "commit": "da8d1e7c41c8abddea4f5a55b2983f91866b84a3",
+          "decision": "本提交登记 #1274 整理后的提交与合并清单；若并入 #1274 提交会形成自引用，保持独立。"
+        }
+      ]
+    },
+    "upstream_sync_20261125": {
+      "date": "2026-11-25",
+      "previous_upstream_commit": "bb56876890ba60f446fa2640c244b1794b965eda",
+      "upstream_commit": "f70ae3c0b2dab61553cc74516268c0633a93dba0",
+      "previous_downstream_commit": "7c61add03d395ca651a1cca9dfd8f31807298a8d",
+      "decision": "按 rebase-onto-upstream 重放到 #1274 合入提交，删除下游自带的 #1274 移植，其余补丁逐条重放，冲突按上游结构解决；顶部两个九键音节提交合并为一个。构建(Android)、文档(下游)与来源修正三个提交合并为一条构建/文档提交，代码修复保持独立。",
+      "dropped": [
+        {
+          "scope": "compact-dictionary-pr1274",
+          "commit": "3bbbe5e1b248d48d8940917ab178e36c79161b3d",
+          "reason": "上游 f70ae3c0 已合入 #1274（pr head e8401caa），下游不再携带该补丁。"
+        }
+      ],
+      "squashed": {
+        "commits": [
+          "d5afc2a70c77516cca5e698b2d8140140267b9a5",
+          "e18e29496bb771c0af2162cfc79a2cb1a2c01c45"
+        ],
+        "pre_rebase_commits": [
+          "9a3175013def3d4d051fa57eb3acbbb201139e8e",
+          "7c61add03d395ca651a1cca9dfd8f31807298a8d"
+        ],
+        "topic": "九键音节栏排序、模糊音节保留与数字输入显示"
+      }
     }
   }
 }
