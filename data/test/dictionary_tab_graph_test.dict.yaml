@@ -1,0 +1,22 @@
+# Rime testing dictionary for T9 tab dead-end regression tests
+# encoding: utf-8
+
+---
+name: dictionary_tab_graph_test
+version: "0.1"
+sort: by_weight  # by_weight / original
+...
+
+五	wu	100
+许	xu	100
+与	yu	100
+组	zu	100
+选	xuan	100
+元	yuan	100
+钻	zuan	100
+昂	ang	100
+个	ge	100
+工	gong	100
+选个	xuan ge	100
+员工	yuan gong	100
+钻个	zuan ge	100

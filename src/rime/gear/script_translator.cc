@@ -20,6 +20,8 @@
 #include <rime/language.h>
 #include <rime/schema.h>
 #include <rime/translation.h>
+#include <rime/algo/algebra.h>
+#include <rime/algo/calculus.h>
 #include <rime/algo/syllabifier.h>
 #include <rime/dict/corrector.h>
 #include <rime/dict/dictionary.h>
@@ -75,6 +77,214 @@ static bool syllabify_dfs(SyllabifyTask* task,
 
 }  // anonymous namespace
 
+static string NormalizeTabLabel(const string& label);
+static string NormalizeT9TabLabel(const string& label);
+
+// Replay the deployed algebra while retaining the labels reached by a fuzzy
+// branch. Final keys can collide (e.g. qi/pi -> 74), so a set of final keys
+// alone cannot establish which syllable label a branch actually derives.
+class FuzzySpellingProjection : public Projection {
+ public:
+  bool Load(an<ConfigList> rules) {
+    fuzzy_rules_.clear();
+    cache_.clear();
+    literal_cache_.clear();
+    if (!Projection::Load(rules))
+      return false;
+    bool has_fuzzy_rule = false;
+    for (size_t i = 0; i < rules->size(); ++i) {
+      const string& formula = rules->GetValueAt(i)->str();
+      const size_t separator =
+          formula.find_first_not_of("abcdefghijklmnopqrstuvwxyz");
+      const string operation = formula.substr(0, separator);
+      const bool fuzzy = operation == "derive" || operation == "fuzz";
+      fuzzy_rules_.push_back(fuzzy);
+      has_fuzzy_rule |= fuzzy;
+    }
+    return has_fuzzy_rule;
+  }
+
+  // True when the keys of the input edge spell `syllable` itself, that is, the
+  // prism indexes it under its own spelling for that edge, and not under a
+  // phonetic variant, abbreviation or completion. Keep ordinary transforms
+  // and spelling-preserving encoding branches, such as Wanxiang's lowercase
+  // -> uppercase derive followed by uppercase -> digit xlit. A phonetic
+  // derive such as zuan -> zhuan must not supply a literal tab.
+  bool SpellsLiterally(const string& syllable,
+                       const set<int>& matched_spellings,
+                       Prism& prism) {
+    auto cached = literal_cache_.find(syllable);
+    if (cached == literal_cache_.end()) {
+      set<string> keys{syllable};
+      for (auto& calculation : calculation_) {
+        set<string> next;
+        for (const auto& key : keys) {
+          Spelling spelling(key);
+          bool applied;
+          try {
+            applied = calculation->Apply(&spelling);
+          } catch (const std::runtime_error& error) {
+            LOG(ERROR) << "Error applying tab spelling algebra: "
+                       << error.what();
+            return false;
+          }
+          if (!applied || !calculation->deletion())
+            next.insert(key);
+          if (applied && calculation->addition() && !spelling.str.empty() &&
+              (calculation->deletion() ||
+               (spelling.properties.type == kNormalSpelling &&
+                !spelling.properties.is_correction &&
+                NormalizeT9TabLabel(key) ==
+                    NormalizeT9TabLabel(spelling.str)))) {
+            next.insert(spelling.str);
+          }
+        }
+        keys.swap(next);
+      }
+      cached = literal_cache_.emplace(syllable, std::move(keys)).first;
+    }
+    for (const auto& key : cached->second) {
+      int spelling_id;
+      if (prism.GetValue(key, &spelling_id) &&
+          matched_spellings.count(spelling_id))
+        return true;
+    }
+    return false;
+  }
+
+  bool Matches(const string& syllable,
+               const string& label,
+               const set<int>& matched_spellings,
+               Prism& prism,
+               bool normalize_t9) {
+    auto cached = cache_.find(syllable);
+    if (cached == cache_.end()) {
+      Paths paths;
+      paths[syllable];
+      for (size_t i = 0; i < calculation_.size(); ++i) {
+        auto& calculation = calculation_[i];
+        Paths next;
+        for (const auto& [key, labels] : paths) {
+          Spelling spelling(key);
+          bool applied;
+          try {
+            applied = calculation->Apply(&spelling);
+          } catch (const std::runtime_error& error) {
+            LOG(ERROR) << "Error applying tab spelling algebra: "
+                       << error.what();
+            return false;
+          }
+          if (!applied || !calculation->deletion())
+            Merge(&next, key, labels);
+          if (applied && calculation->addition() && !spelling.str.empty()) {
+            auto derived_labels = labels;
+            if (fuzzy_rules_[i] || !labels.empty())
+              derived_labels.insert(StripTones(spelling.str));
+            Merge(&next, spelling.str, derived_labels);
+          }
+        }
+        paths.swap(next);
+      }
+      cached = cache_.emplace(syllable, std::move(paths)).first;
+    }
+    for (const auto& [key, labels] : cached->second) {
+      const bool matches_label =
+          labels.count(label) ||
+          (normalize_t9 &&
+           std::any_of(labels.begin(), labels.end(), [&](const string& value) {
+             return NormalizeT9TabLabel(value) == label;
+           }));
+      int spelling_id;
+      if (matches_label && prism.GetValue(key, &spelling_id) &&
+          matched_spellings.count(spelling_id))
+        return true;
+    }
+    return false;
+  }
+
+ private:
+  using Paths = map<string, set<string>>;
+
+  static void Merge(Paths* paths,
+                    const string& key,
+                    const set<string>& labels) {
+    auto& target = (*paths)[key];
+    target.insert(labels.begin(), labels.end());
+  }
+
+  vector<bool> fuzzy_rules_;
+  map<string, Paths> cache_;
+  map<string, set<string>> literal_cache_;
+};
+
+// Use the same prism searches as the graph builder when identifying the keys
+// for a selected edge, including delimiters, canonicalization and completion.
+class TabSyllabifier : public Syllabifier {
+ public:
+  using Syllabifier::Syllabifier;
+
+  set<int> MatchSpellings(const string& input,
+                          size_t start,
+                          size_t end,
+                          Prism& prism,
+                          bool completion,
+                          bool correction = true) {
+    set<int> result;
+    vector<Prism::Match> matches;
+    if (completion) {
+      if (enable_completion_ && end == input.length()) {
+        prism.ExpandSearch(input.substr(start), &matches, 512);
+        for (const auto& match : matches) {
+          if (match.length >= end - start)
+            result.insert(match.value);
+        }
+      }
+      return result;
+    }
+    size_t begin = start;
+    while (begin < input.length() &&
+           delimiters_.find(input[begin]) != string::npos)
+      ++begin;
+    const string remaining = input.substr(begin);
+    if (canonicalizer_) {
+      const size_t limit =
+          (std::min)(remaining.length(), prism.max_key_length());
+      for (size_t length = 1; length <= limit; ++length) {
+        string key = remaining.substr(0, length);
+        canonicalizer_->Apply(&key);
+        int value;
+        if (prism.GetValue(key, &value))
+          matches.push_back({value, length});
+      }
+    } else {
+      prism.CommonPrefixSearch(remaining, &matches);
+    }
+    if (correction && corrector_) {
+      corrector::Corrections corrections;
+      corrector_->ToleranceSearch(prism, remaining, &corrections, 5);
+      for (const auto& [value, correction] : corrections) {
+        for (auto accessor = prism.QuerySpelling(value); !accessor.exhausted();
+             accessor.Next()) {
+          const auto properties = accessor.properties();
+          if (properties.type == kNormalSpelling && !properties.is_correction) {
+            matches.push_back({value, correction.length});
+            break;
+          }
+        }
+      }
+    }
+    for (const auto& match : matches) {
+      size_t matched_end = begin + match.length;
+      while (matched_end < input.length() &&
+             delimiters_.find(input[matched_end]) != string::npos)
+        ++matched_end;
+      if (match.length && matched_end == end)
+        result.insert(match.value);
+    }
+    return result;
+  }
+};
+
 class ScriptSyllabifier : public PhraseSyllabifier {
  public:
   ScriptSyllabifier(ScriptTranslator* translator,
@@ -95,6 +305,13 @@ class ScriptSyllabifier : public PhraseSyllabifier {
 
   virtual Spans Syllabify(const Phrase* phrase);
   size_t BuildSyllableGraph(Prism& prism);
+  // Restrict edges while the graph is built, before dead-end edges are
+  // removed. Call before BuildSyllableGraph; cleared by it.
+  void PrepareTabFilter(Dictionary* dict,
+                        const vector<Context::TabConstraint>& constraints,
+                        const map<char, set<char>>* typed_key_letters);
+  // Keep edges that do not lead to the farthest position. Reset after build.
+  void KeepUnreachableEdges() { syllabifier_.SetPruneStaleEdges(false); }
   void ApplyTabConstraints(Dictionary* dict,
                            const vector<Context::TabConstraint>& constraints);
   string GetPreeditString(const Phrase& cand) const;
@@ -103,11 +320,17 @@ class ScriptSyllabifier : public PhraseSyllabifier {
 
   const SyllableGraph& syllable_graph() const { return syllable_graph_; }
 
+  // Prism spellings that match input_[begin, end) exactly, as the syllable
+  // graph builder sees them.
+  set<int> MatchLiteralSpellings(size_t begin, size_t end, Prism& prism) {
+    return syllabifier_.MatchSpellings(input_, begin, end, prism, false, false);
+  }
+
  protected:
   ScriptTranslator* translator_;
   string input_;
   size_t start_;
-  Syllabifier syllabifier_;
+  TabSyllabifier syllabifier_;
   SyllableGraph syllable_graph_;
 };
 
@@ -207,6 +430,13 @@ ScriptTranslator::ScriptTranslator(const Ticket& ticket)
       if (canonicalizer->Load(rules)) {
         canonicalizer_ = std::move(canonicalizer);
       }
+    }
+    // Reuse the complete deployed algebra, including transformations before
+    // derive/fuzz and removal of derived branches by subsequent rules.
+    if (auto algebra = config->GetList("speller/algebra")) {
+      auto projection = New<FuzzySpellingProjection>();
+      if (projection->Load(algebra))
+        fuzzy_projection_ = std::move(projection);
     }
   }
   if (enable_correction_) {
@@ -422,6 +652,39 @@ static string NormalizeTabLabel(const string& label) {
   return normalized;
 }
 
+static string DecodeSyllableId(Dictionary* dict, SyllableId id);
+static bool LabelSpelledByKeys(const string& label,
+                               const string& typed,
+                               const map<char, set<char>>& key_letters);
+
+static string NormalizeT9TabLabel(const string& label) {
+  string normalized = NormalizeTabLabel(label);
+  for (const auto* umlaut : {"ü", "Ü"}) {
+    size_t pos = 0;
+    while ((pos = normalized.find(umlaut, pos)) != string::npos) {
+      normalized.replace(pos, 2, "v");
+      ++pos;
+    }
+  }
+  return normalized;
+}
+
+bool ScriptTranslator::UseLiteralTabLabels(const string& input,
+                                           size_t position) const {
+  // Load retains a projection only when derive/fuzz rules are present. Keep
+  // the old labels and matching behavior for every other schema/input path.
+  if (!fuzzy_projection_ || !engine_ || !engine_->schema())
+    return false;
+  while (position < input.size() &&
+         delimiters().find(input[position]) != string::npos)
+    ++position;
+  if (position >= input.size() || input[position] < '0' ||
+      input[position] > '9')
+    return false;
+  const auto mapping = ParseAlgebraReverseMapping(engine_->schema()->config());
+  return mapping.count(input[position]) != 0;
+}
+
 void ScriptTranslator::CollectSyllableTabs(size_t start_pos,
                                            vector<InputTabEntry>* tabs) const {
   if (!dict_ || !dict_->loaded() || !engine_ || !engine_->context())
@@ -431,19 +694,19 @@ void ScriptTranslator::CollectSyllableTabs(size_t start_pos,
   if (start_pos >= input.length())
     return;
 
-  // Build and prune the full graph against the current tab constraints, then
-  // inspect the node at start_pos. This keeps tree navigation aligned with the
-  // active selection path instead of exposing the raw unfiltered graph.
-  ScriptSyllabifier syllabifier(const_cast<ScriptTranslator*>(this),
-                                corrector_.get(), input, 0);
-  syllabifier.BuildSyllableGraph(*dict_->prism());
-  if (auto* ctx = engine_->context()) {
-    const auto& constraints = ctx->tab_constraints();
-    if (!constraints.empty()) {
-      syllabifier.ApplyTabConstraints(dict_.get(), constraints);
-    }
-  }
-  const auto& graph = syllabifier.syllable_graph();
+  // Syllable tabs only help digit-key (T9) input, where several syllables
+  // share the same keys. Letter-key input is exact, so no tabs are offered.
+  // Decide from the syllable that starts at start_pos, not from the first
+  // character of the whole input: after a prefix is confirmed the cursor moves
+  // on, and a schema may mix digit and letter syllables. Delimiters are the
+  // ones configured by the schema.
+  size_t syllable_pos = start_pos;
+  while (syllable_pos < input.length() &&
+         delimiters().find(input[syllable_pos]) != string::npos)
+    ++syllable_pos;
+  if (syllable_pos >= input.length() ||
+      !std::isdigit(static_cast<unsigned char>(input[syllable_pos])))
+    return;
 
   // Parse xlit algebra rules to build reverse mapping: target_char →
   // source_chars E.g.
@@ -454,10 +717,85 @@ void ScriptTranslator::CollectSyllableTabs(size_t start_pos,
     xlit_reverse = ParseAlgebraReverseMapping(engine_->schema()->config());
   }
 
+  vector<Context::TabConstraint> constraints;
+  if (auto* ctx = engine_->context()) {
+    constraints = ctx->tab_constraints();
+  }
+
+  // The syllable bar keeps syllables spelled literally by the typed keys, even
+  // when they are dead ends: 98264 offers xuan/yuan/zuan although zu+ang is the
+  // only parse that reaches the end. Fuzzy syllables remain in the candidate
+  // graph; only constrained edges are filtered there, so selecting xuan still
+  // leaves the last key to completion. Non-digit tabs and the independent
+  // initial/raw-key tabs keep their existing paths.
+  //
+  // With fuzzy algebra the labels are normalized to their literal spelling.
+  // A digit schema can also have a T9 mapping without fuzzy algebra; the key
+  // filter still applies, but labels stay plain.
+  auto* literal =
+      UseLiteralTabLabels(input, start_pos) ? fuzzy_projection() : nullptr;
+  const bool t9_input = xlit_reverse.count(input[syllable_pos]) > 0;
+
+  auto build_tab_graph = [&](bool keep_unreachable) {
+    auto graph = New<ScriptSyllabifier>(const_cast<ScriptTranslator*>(this),
+                                        corrector_.get(), input, 0);
+    graph->PrepareTabFilter(dict_.get(), constraints,
+                            t9_input ? &xlit_reverse : nullptr);
+    if (keep_unreachable) {
+      graph->KeepUnreachableEdges();
+    }
+    graph->BuildSyllableGraph(*dict_->prism());
+    if (!constraints.empty()) {
+      graph->ApplyTabConstraints(dict_.get(), constraints);
+    }
+    return graph;
+  };
+
+  auto has_literal_complete_edge = [&](ScriptSyllabifier& graph) {
+    auto it = graph.syllable_graph().edges.find(start_pos);
+    if (it == graph.syllable_graph().edges.end())
+      return false;
+    auto edge = it->second.find(input.length());
+    if (edge == it->second.end())
+      return false;
+    // Completion and fuzzy edges also reach the end of the input. Only a
+    // syllable spelled literally by the typed keys makes the normal pruned
+    // graph authoritative; otherwise the bar keeps the literal dead ends.
+    string typed;
+    for (size_t i = start_pos; i < input.length(); ++i) {
+      if (delimiters().find(input[i]) == string::npos)
+        typed.push_back(input[i]);
+    }
+    set<int> typed_spellings;
+    if (literal) {
+      typed_spellings = graph.MatchLiteralSpellings(start_pos, input.length(),
+                                                    *dict_->prism());
+    }
+    for (const auto& [syllable_id, props] : edge->second) {
+      const string decoded = DecodeSyllableId(dict_.get(), syllable_id);
+      if (decoded.empty())
+        continue;
+      const bool spelled =
+          literal ? literal->SpellsLiterally(decoded, typed_spellings,
+                                             *dict_->prism())
+                  : LabelSpelledByKeys(decoded, typed, xlit_reverse);
+      if (spelled)
+        return true;
+    }
+    return false;
+  };
+
+  auto syllabifier = build_tab_graph(false);
+  if (t9_input && !has_literal_complete_edge(*syllabifier)) {
+    syllabifier = build_tab_graph(true);
+  }
+  const auto& graph = syllabifier->syllable_graph();
+
   // Check if the input character at start_pos has an xlit/derive mapping
   char first_input_char = input[start_pos];
   bool first_char_has_xlit = xlit_reverse.count(first_input_char) > 0;
 
+  const size_t first_syllable_tab = tabs->size();
   map<string, size_t> seen;
   bool has_single_span = false;
   auto it = graph.edges.find(start_pos);
@@ -468,12 +806,21 @@ void ScriptTranslator::CollectSyllableTabs(size_t start_pos,
         if (first_char_has_xlit)
           continue;  // Skip span=1 noise when mapping applies
       }
+      set<int> typed_spellings;
+      if (literal) {
+        typed_spellings = syllabifier->MatchLiteralSpellings(start_pos, end_pos,
+                                                             *dict_->prism());
+      }
       for (const auto& [syllable_id, props] : syllable_map) {
         Code single_code;
         single_code.push_back(syllable_id);
         vector<string> decoded;
         if (dict_->Decode(single_code, &decoded) && !decoded.empty()) {
-          string label = NormalizeTabLabel(decoded[0]);
+          if (literal && !literal->SpellsLiterally(decoded[0], typed_spellings,
+                                                   *dict_->prism()))
+            continue;
+          string label = literal ? NormalizeT9TabLabel(decoded[0])
+                                 : NormalizeTabLabel(decoded[0]);
           if (!label.empty()) {
             size_t span = end_pos - start_pos;
             auto [it, inserted] = seen.emplace(label, tabs->size());
@@ -488,6 +835,18 @@ void ScriptTranslator::CollectSyllableTabs(size_t start_pos,
       }
     }
   }
+
+  // Longest syllables first (e.g. "sheng" before "shen" before "she"), and
+  // alphabetical within the same span. The internal syllable-id order is not
+  // alphabetical (e.g. "fo" can precede "en"), which looks random in the bar.
+  // Only the syllable tabs collected above are reordered; tabs from other
+  // translators and the xlit/raw-key tabs appended below keep their positions.
+  std::stable_sort(tabs->begin() + first_syllable_tab, tabs->end(),
+                   [](const InputTabEntry& a, const InputTabEntry& b) {
+                     if (a.span != b.span)
+                       return a.span > b.span;
+                     return a.label < b.label;
+                   });
 
   // Generate xlit partial-match tabs for 简拼 disambiguation
   if ((!has_single_span || first_char_has_xlit) && first_char_has_xlit) {
@@ -523,8 +882,11 @@ Spans ScriptSyllabifier::Syllabify(const Phrase* phrase) {
 }
 
 size_t ScriptSyllabifier::BuildSyllableGraph(Prism& prism) {
-  return (size_t)syllabifier_.BuildSyllableGraph(input_, prism,
-                                                 &syllable_graph_);
+  size_t consumed =
+      (size_t)syllabifier_.BuildSyllableGraph(input_, prism, &syllable_graph_);
+  syllabifier_.SetEdgeFilter(nullptr);
+  syllabifier_.SetPruneStaleEdges(true);
+  return consumed;
 }
 
 // Helper: decode a single SyllableId to string
@@ -537,6 +899,132 @@ static string DecodeSyllableId(Dictionary* dict, SyllableId id) {
   if (dict->Decode(code, &decoded) && !decoded.empty())
     return decoded[0];
   return "";
+}
+
+// Returns true when the schema's spelling algebra derives `label` from
+// `syllable`, that is, when the prism also indexes `syllable` under the
+// spelling `label`. Only derive/fuzz rules establish fuzzy provenance; the
+// other algebra rules propagate or remove branches in deployment order.
+// A schema without fuzzy rules keeps the exact-match behavior.
+static bool FuzzySpellingMatches(FuzzySpellingProjection* projection,
+                                 const string& syllable,
+                                 const string& label,
+                                 const set<int>& matched_spellings,
+                                 Prism& prism,
+                                 bool normalize_t9) {
+  if (!projection || syllable.empty() || label.empty())
+    return false;
+  return projection->Matches(syllable, label, matched_spellings, prism,
+                             normalize_t9);
+}
+
+// Returns true when `label` literally spells `typed` on the T9 keypad, that is,
+// every letter of the decoded syllable is one of the letters mapped to the
+// corresponding typed key. Used to keep the syllable bar to what the user can
+// see in the input, including syllables that are not reachable from the end of
+// the whole input.
+static bool LabelSpelledByKeys(const string& label,
+                               const string& typed,
+                               const map<char, set<char>>& key_letters) {
+  string spelling = NormalizeT9TabLabel(label);
+  if (spelling.empty() || spelling.size() != typed.size())
+    return false;
+  for (size_t i = 0; i < spelling.size(); ++i) {
+    char key = typed[i];
+    if (key >= 'A' && key <= 'Z')
+      key = static_cast<char>(key - 'A' + 'a');
+    auto it = key_letters.find(key);
+    if (it == key_letters.end())
+      return false;
+    bool matched = false;
+    for (char letter : it->second) {
+      if (std::tolower(static_cast<unsigned char>(letter)) == spelling[i]) {
+        matched = true;
+        break;
+      }
+    }
+    if (!matched)
+      return false;
+  }
+  return true;
+}
+
+void ScriptSyllabifier::PrepareTabFilter(
+    Dictionary* dict,
+    const vector<Context::TabConstraint>& constraints,
+    const map<char, set<char>>* typed_key_letters) {
+  if (!dict)
+    return;
+  vector<Context::TabConstraint> active;
+  for (const auto& constraint : constraints) {
+    if (constraint.position >= start_)
+      active.push_back(constraint);
+  }
+  const bool typed_only = typed_key_letters != nullptr;
+  if (!typed_only && active.empty())
+    return;
+
+  FuzzySpellingProjection* fuzzy =
+      translator_ ? translator_->fuzzy_projection() : nullptr;
+  syllabifier_.SetEdgeFilter([this, dict, fuzzy, typed_only, active,
+                              typed_key_letters](size_t start, size_t end,
+                                                 SyllableId syllable_id, int) {
+    const string decoded = DecodeSyllableId(dict, syllable_id);
+    if (decoded.empty())
+      return false;
+
+    if (typed_only) {
+      string typed;
+      bool all_digits = true;
+      for (size_t i = start; i < end && i < input_.size(); ++i) {
+        const char ch = input_[i];
+        if (translator_ && translator_->delimiters().find(ch) != string::npos)
+          continue;
+        typed.push_back(ch);
+        if (!std::isdigit(static_cast<unsigned char>(ch)))
+          all_digits = false;
+      }
+      // Letter-key edges are exact and keep the normal graph behavior;
+      // only digit-key edges need the literal T9 spelling check. Edges
+      // shorter than the syllable (abbreviation or completion) are not
+      // literal spellings and keep their existing behavior.
+      if (all_digits && typed.size() == NormalizeT9TabLabel(decoded).size() &&
+          !LabelSpelledByKeys(decoded, typed, *typed_key_letters))
+        return false;
+    }
+
+    for (const auto& constraint : active) {
+      const size_t constraint_pos = constraint.position - start_;
+      if (constraint_pos != start)
+        continue;
+      const bool normalize_t9 = translator_ && translator_->UseLiteralTabLabels(
+                                                   input_, constraint_pos);
+      const string label_base = normalize_t9
+                                    ? NormalizeT9TabLabel(constraint.label)
+                                    : StripTones(constraint.label);
+      const string decoded_base =
+          normalize_t9 ? NormalizeT9TabLabel(decoded) : StripTones(decoded);
+      if (constraint.span == 1) {
+        if (decoded_base.empty() || label_base.empty() ||
+            decoded_base[0] != label_base[0])
+          return false;
+        continue;
+      }
+      if (end != start + constraint.span)
+        return false;
+      if (decoded_base == label_base)
+        continue;
+      set<int> spellings = syllabifier_.MatchSpellings(
+          input_, constraint_pos, end, *dict->prism(), false);
+      set<int> completions = syllabifier_.MatchSpellings(
+          input_, constraint_pos, end, *dict->prism(), true);
+      spellings.insert(completions.begin(), completions.end());
+      if (!FuzzySpellingMatches(fuzzy, decoded, label_base, spellings,
+                                *dict->prism(), normalize_t9))
+        return false;
+    }
+    return true;
+  });
 }
 
 void ScriptSyllabifier::ApplyTabConstraints(
@@ -554,8 +1042,7 @@ void ScriptSyllabifier::ApplyTabConstraints(
     size_t graph_pos = constraint.position - start_;
     DLOG(INFO) << "  constraint: pos=" << constraint.position
                << " graph_pos=" << graph_pos << " label=[" << constraint.label
-               << "]"
-               << " span=" << constraint.span;
+               << "]" << " span=" << constraint.span;
     if (graph_pos >= syllable_graph_.input_length) {
       DLOG(INFO) << "  SKIP: graph_pos >= input_length";
       continue;
@@ -567,8 +1054,18 @@ void ScriptSyllabifier::ApplyTabConstraints(
       continue;
     }
 
-    string label_base = StripTones(constraint.label);
+    const bool normalize_t9 =
+        translator_ && translator_->UseLiteralTabLabels(input_, graph_pos);
+    string label_base = normalize_t9 ? NormalizeT9TabLabel(constraint.label)
+                                     : StripTones(constraint.label);
     bool is_single_char = (constraint.span == 1);
+
+    // A full-syllable tab may stand for a syllable whose canonical spelling
+    // differs from the label because the schema's fuzzy-spelling algebra also
+    // spells it as the label (for example, tab "shen" is how "sheng" is typed
+    // under en/eng fuzzy spelling).  Such a syllable is already indexed under
+    // the selected spelling, so keep it instead of dropping it as a mismatch.
+    auto* fuzzy = translator_ ? translator_->fuzzy_projection() : nullptr;
 
     auto& end_map = edge_it->second;
     DLOG(INFO) << "  label_base=[" << label_base
@@ -593,10 +1090,24 @@ void ScriptSyllabifier::ApplyTabConstraints(
         continue;
       }
 
+      set<int> exact_spellings, completion_spellings;
+      if (!is_single_char && fuzzy) {
+        exact_spellings = syllabifier_.MatchSpellings(
+            input_, graph_pos, end_pos, *dict->prism(), false);
+        if (std::any_of(spelling_map.begin(), spelling_map.end(),
+                        [](const auto& entry) {
+                          return entry.second.type == kCompletion;
+                        })) {
+          completion_spellings = syllabifier_.MatchSpellings(
+              input_, graph_pos, end_pos, *dict->prism(), true);
+        }
+      }
+
       // Filter syllables in this edge
       for (auto syl_it = spelling_map.begin(); syl_it != spelling_map.end();) {
         string decoded = DecodeSyllableId(dict, syl_it->first);
-        string decoded_base = StripTones(decoded);
+        string decoded_base =
+            normalize_t9 ? NormalizeT9TabLabel(decoded) : StripTones(decoded);
         bool keep = false;
 
         if (is_single_char) {
@@ -606,15 +1117,20 @@ void ScriptSyllabifier::ApplyTabConstraints(
             keep = true;
           }
         } else {
-          // Full syllable: tone-insensitive match
-          if (decoded_base == label_base) {
+          // Full syllable: tone-insensitive match, plus syllables that the
+          // schema's fuzzy-spelling rules also spell as the selected label.
+          if (decoded_base == label_base ||
+              FuzzySpellingMatches(fuzzy, decoded, label_base,
+                                   syl_it->second.type == kCompletion
+                                       ? completion_spellings
+                                       : exact_spellings,
+                                   *dict->prism(), normalize_t9)) {
             keep = true;
           }
         }
 
         DLOG(INFO) << "      syl_id=" << syl_it->first << " decoded=["
-                   << decoded << "]"
-                   << " base=[" << decoded_base << "]"
+                   << decoded << "]" << " base=[" << decoded_base << "]"
                    << " keep=" << keep;
 
         if (keep)
@@ -730,6 +1246,9 @@ static bool has_exact_match_phrase(Ptr ptr, Iter iter, size_t consumed) {
 // ScriptTranslation implementation
 
 bool ScriptTranslation::Evaluate(Dictionary* dict, UserDictionary* user_dict) {
+  if (!constraints_.empty()) {
+    syllabifier_->PrepareTabFilter(dict, constraints_, nullptr);
+  }
   size_t consumed = syllabifier_->BuildSyllableGraph(*dict->prism());
   if (!constraints_.empty()) {
     syllabifier_->ApplyTabConstraints(dict, constraints_);

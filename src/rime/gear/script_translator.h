@@ -22,6 +22,7 @@ class Code;
 class Corrector;
 struct DictEntry;
 class Dictionary;
+class FuzzySpellingProjection;
 class Poet;
 class UserDictionary;
 
@@ -69,6 +70,10 @@ class ScriptTranslator : public Translator,
   int max_word_length() const { return max_word_length_; }
   int core_word_length() const;
   Projection* canonicalizer() const { return canonicalizer_.get(); }
+  FuzzySpellingProjection* fuzzy_projection() const {
+    return fuzzy_projection_.get();
+  }
+  bool UseLiteralTabLabels(const string& input, size_t position) const;
 
   //! Collect possible tab entries from the SyllableGraph
   RIME_DLL void CollectSyllableTabs(size_t start_pos,
@@ -90,6 +95,7 @@ class ScriptTranslator : public Translator,
   bool enable_correction_ = false;
   bool enable_word_completion_ = false;
   the<Projection> canonicalizer_;
+  an<FuzzySpellingProjection> fuzzy_projection_;
   the<Corrector> corrector_;
   the<Poet> poet_;
   vector<an<Phrase>> queue_;

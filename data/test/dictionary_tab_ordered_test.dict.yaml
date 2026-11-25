@@ -1,0 +1,25 @@
+# Rime testing dictionary for ordered spelling-algebra tab constraints
+# encoding: utf-8
+
+---
+name: dictionary_tab_ordered_test
+version: "0.1"
+sort: by_weight
+...
+
+生	sheng	100
+声	sheng	90
+沈	shen	100
+深	shen	90
+蛇	she	100
+撇	pie	100
+切	qie	100
+皮	pi	100
+七	qi	100
+日	ri	100
+效	xiao	100
+米	mi	100
+生效	sheng xiao	100
+甥	shēng	80
+恩	en	100
+嗯	n	100

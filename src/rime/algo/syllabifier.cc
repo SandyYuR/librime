@@ -147,6 +147,10 @@ int Syllabifier::BuildSyllableGraph(const string& input,
         // when the same spelling_id appears from multiple vertices.
         for (const auto& [syllable_id, raw_props] :
              get_cached_spellings(m.value)) {
+          if (edge_filter_ &&
+              !edge_filter_(current_pos, end_pos, syllable_id, m.value)) {
+            continue;
+          }
           EdgeProperties props(raw_props);
           if (strict_spelling_ && matches_input &&
               props.type != kNormalSpelling) {
@@ -191,54 +195,56 @@ int Syllabifier::BuildSyllableGraph(const string& input,
     }
   }
 
-  DLOG(INFO) << "remove stale vertices and edges";
-  set<int> good;
-  good.insert(farthest);
-  // fuzzy spellings are immune to invalidation by normal spellings
-  SpellingType last_type =
-      (std::max)(graph->vertices[farthest], kFuzzySpelling);
-  for (int i = farthest - 1; i >= 0; --i) {
-    if (graph->vertices.find(i) == graph->vertices.end())
-      continue;
-    // remove stale edges
-    for (auto j = graph->edges[i].begin(); j != graph->edges[i].end();) {
-      if (good.find(j->first) == good.end()) {
-        // not connected
-        graph->edges[i].erase(j++);
+  if (prune_stale_) {
+    DLOG(INFO) << "remove stale vertices and edges";
+    set<int> good;
+    good.insert(farthest);
+    // fuzzy spellings are immune to invalidation by normal spellings
+    SpellingType last_type =
+        (std::max)(graph->vertices[farthest], kFuzzySpelling);
+    for (int i = farthest - 1; i >= 0; --i) {
+      if (graph->vertices.find(i) == graph->vertices.end())
+        continue;
+      // remove stale edges
+      for (auto j = graph->edges[i].begin(); j != graph->edges[i].end();) {
+        if (good.find(j->first) == good.end()) {
+          // not connected
+          graph->edges[i].erase(j++);
+          continue;
+        }
+        // remove disqualified syllables (eg. matching abbreviated spellings)
+        // when there is a path of more favored type
+        SpellingType edge_type = kInvalidSpelling;
+        for (auto k = j->second.begin(); k != j->second.end();) {
+          if (k->second.is_correction) {
+            ++k;
+            continue;  // Don't care correction edges
+          }
+          if (k->second.type > last_type) {
+            j->second.erase(k++);
+          } else {
+            if (k->second.type < edge_type)
+              edge_type = k->second.type;
+            ++k;
+          }
+        }
+        if (j->second.empty()) {
+          graph->edges[i].erase(j++);
+        } else {
+          if (edge_type < kAbbreviation)
+            CheckOverlappedSpellings(graph, i, j->first);
+          ++j;
+        }
+      }
+      if (graph->vertices[i] > last_type || graph->edges[i].empty()) {
+        DLOG(INFO) << "remove stale vertex at " << i;
+        graph->vertices.erase(i);
+        graph->edges.erase(i);
         continue;
       }
-      // remove disqualified syllables (eg. matching abbreviated spellings)
-      // when there is a path of more favored type
-      SpellingType edge_type = kInvalidSpelling;
-      for (auto k = j->second.begin(); k != j->second.end();) {
-        if (k->second.is_correction) {
-          ++k;
-          continue;  // Don't care correction edges
-        }
-        if (k->second.type > last_type) {
-          j->second.erase(k++);
-        } else {
-          if (k->second.type < edge_type)
-            edge_type = k->second.type;
-          ++k;
-        }
-      }
-      if (j->second.empty()) {
-        graph->edges[i].erase(j++);
-      } else {
-        if (edge_type < kAbbreviation)
-          CheckOverlappedSpellings(graph, i, j->first);
-        ++j;
-      }
+      // keep the valid vertex
+      good.insert(i);
     }
-    if (graph->vertices[i] > last_type || graph->edges[i].empty()) {
-      DLOG(INFO) << "remove stale vertex at " << i;
-      graph->vertices.erase(i);
-      graph->edges.erase(i);
-      continue;
-    }
-    // keep the valid vertex
-    good.insert(i);
   }
 
   if (enable_completion_ && farthest < input.length()) {

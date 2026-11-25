@@ -8,7 +8,9 @@
 #ifndef RIME_SYLLABIFIER_H_
 #define RIME_SYLLABIFIER_H_
 
+#include <functional>
 #include <stdint.h>
+#include <utility>
 #include <rime_api.h>
 #include <rime/common.h>
 #include "spelling.h"
@@ -62,6 +64,17 @@ class Syllabifier {
                                   SyllableGraph* graph);
   RIME_DLL void EnableCorrection(Corrector* corrector);
 
+  // Optional predicate deciding whether `syllable_id` may sit on the edge
+  // [start, end) produced by the prism spelling `spelling_id`. Rejected edges
+  // never enter the graph, so the later removal of stale vertices and edges
+  // recomputes connectivity without them. Pass nullptr to clear it.
+  using EdgeFilter = std::function<
+      bool(size_t start, size_t end, SyllableId syllable_id, int spelling_id)>;
+  void SetEdgeFilter(EdgeFilter filter) { edge_filter_ = std::move(filter); }
+  // When disabled, vertices and edges that do not lead to the farthest
+  // position are kept (default: enabled).
+  void SetPruneStaleEdges(bool prune) { prune_stale_ = prune; }
+
  protected:
   void CheckOverlappedSpellings(SyllableGraph* graph, size_t start, size_t end);
   void Transpose(SyllableGraph* graph);
@@ -71,6 +84,8 @@ class Syllabifier {
   bool strict_spelling_ = false;
   Projection* canonicalizer_ = nullptr;
   Corrector* corrector_ = nullptr;
+  EdgeFilter edge_filter_;
+  bool prune_stale_ = true;
 };
 
 }  // namespace rime
